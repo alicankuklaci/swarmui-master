@@ -1,0 +1,30 @@
+SwarmUI frontend'de 3 sayfa (TemplatesPage, GitOpsPage, SecurityPage) boş aciliyor.
+Hata: React error boundary tutuyor. 500 ve 401 hatasi geliyor.
+
+Sorun: Bu sayfalardaki React Query hook'lari hata alinca error throw ediyor ve error boundary yok.
+
+GOREV:
+1. apps/frontend/src/pages/TemplatesPage.tsx - isError kontrolu ekle, hata durumunda fallback UI goster
+2. apps/frontend/src/pages/GitopsPage.tsx - ayni sekilde
+3. apps/frontend/src/pages/SecurityPage.tsx - ayni sekilde
+
+Her sayfada su pattern'i kullan:
+const { data, isLoading, isError, error } = useXxx();
+
+if (isError) {
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-1">PageName</h1>
+      <p className="text-muted-foreground mb-4">Subtitle</p>
+      <div className="rounded border border-destructive/30 bg-destructive/10 p-4 text-destructive text-sm">
+        Failed to load data. Please check your connection or try again.
+      </div>
+    </div>
+  );
+}
+
+Ayrica useTemplates, useGitops, useSecurityPolicies hook'larinda throwOnError: false ekle.
+
+Bitince:
+cd /home/nlc/projects/swarmui && git add -A && git commit -m "fix: error handling for Templates, GitOps, Security pages"
+openclaw system event --text "SwarmUI sayfa hatalari duzeltildi." --mode now

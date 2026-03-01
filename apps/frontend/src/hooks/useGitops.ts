@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 export function useGitopsDeployments() {
   return useQuery({
     queryKey: ['gitops-deployments'],
+    throwOnError: false,
     queryFn: () => api.get('/gitops').then((r) => r.data),
     refetchInterval: 15000,
   });
@@ -14,6 +15,7 @@ export function useGitopsDeployments() {
 export function useGitopsDeployment(id: string) {
   return useQuery({
     queryKey: ['gitops-deployment', id],
+    throwOnError: false,
     queryFn: () => api.get(`/gitops/${id}`).then((r) => r.data),
     enabled: !!id,
     refetchInterval: 10000,
@@ -61,6 +63,7 @@ export function useTriggerGitopsDeploy() {
 export function useGitopsDeployHistory(id: string) {
   return useQuery({
     queryKey: ['gitops-history', id],
+    throwOnError: false,
     queryFn: () => api.get(`/gitops/${id}/history`).then((r) => r.data),
     enabled: !!id,
   });
@@ -71,6 +74,7 @@ export function useGitopsDeployHistory(id: string) {
 export function useGitCredentials() {
   return useQuery({
     queryKey: ['git-credentials'],
+    throwOnError: false,
     queryFn: () => api.get('/gitops/credentials/list').then((r) => r.data),
   });
 }

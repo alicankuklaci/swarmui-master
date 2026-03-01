@@ -55,7 +55,7 @@ export class GitopsDeployment {
   @Prop({ default: '' })
   lastCommitMessage: string;
 
-  @Prop({ default: null })
+  @Prop({ type: Date, default: null })
   lastDeployedAt: Date | null;
 
   @Prop({ default: '' })

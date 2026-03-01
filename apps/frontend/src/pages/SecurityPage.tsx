@@ -28,6 +28,7 @@ export function SecurityPage() {
   const [policyForm, setPolicyForm] = useState({ name: '', description: '', readonlyRootFilesystem: false, noNewPrivileges: true, runAsNonRoot: false });
 
   const { data: policies, isLoading: loadingPolicies } = useQuery({
+    throwOnError: false,
     queryKey: ['security-policies'],
     queryFn: async () => {
       const res = await api.get('/security/policies');
@@ -36,6 +37,7 @@ export function SecurityPage() {
   });
 
   const { data: trivyStatus } = useQuery({
+    throwOnError: false,
     queryKey: ['trivy-status'],
     queryFn: async () => {
       const res = await api.get('/security/trivy/status');
@@ -44,6 +46,7 @@ export function SecurityPage() {
   });
 
   const { data: secrets, isLoading: loadingSecrets } = useQuery({
+    throwOnError: false,
     queryKey: ['docker-secrets'],
     queryFn: async () => {
       const res = await api.get('/security/secrets');

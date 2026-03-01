@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 export function useTemplates(category?: string, search?: string) {
   return useQuery({
     queryKey: ['templates', category, search],
+    throwOnError: false,
     queryFn: () => {
       const params = new URLSearchParams();
       if (category) params.set('category', category);
@@ -16,6 +17,7 @@ export function useTemplates(category?: string, search?: string) {
 export function useTemplateCategories() {
   return useQuery({
     queryKey: ['template-categories'],
+    throwOnError: false,
     queryFn: () => api.get('/templates/categories').then((r) => r.data),
   });
 }
@@ -23,6 +25,7 @@ export function useTemplateCategories() {
 export function useTemplate(id: string) {
   return useQuery({
     queryKey: ['template', id],
+    throwOnError: false,
     queryFn: () => api.get(`/templates/${id}`).then((r) => r.data),
     enabled: !!id,
   });
