@@ -1,0 +1,31 @@
+Sen bir yazilim mimarissin. Bir Portainer Business Edition alternatifi gelistirecegiz. SADECE PLAN YAP, KOD YAZMA.
+
+Stack:
+- Backend: NestJS + MongoDB
+- Frontend: React
+- Hedef: Docker Swarm yonetimi (Portainer BE tum ozellikleri)
+
+Portainer BE ozellikleri:
+- Container yonetimi (olustur, loglar, konsol, resource)
+- Docker Swarm (node, service, stack yonetimi)
+- Image & Registry yonetimi
+- Network & Volume yonetimi
+- App Templates (hazir + ozel)
+- Kullanici & Takim yonetimi
+- RBAC (rol bazli erisim)
+- OAuth / LDAP / Active Directory entegrasyonu
+- Activity logs, Auth logs, Notification log
+- GitOps (Git repo auto-deploy, webhook)
+- Backup (manuel, S3, scheduled)
+- Docker security policy
+
+Lutfen sunlari iceren detayli bir plan hazirla:
+1. Proje klasor yapisi (monorepo)
+2. Backend modulleri ve sorumluluklari
+3. Frontend sayfalari ve componentleri
+4. MongoDB sema tasarimi (ana koleksiyonlar)
+5. API endpoint gruplari
+6. Gelistirme asamalari (Phase 1, 2, 3...)
+7. Teknik kararlar ve gerekceleri
+
+Plani markdown formatinda yaz ve /home/nlc/projects/swarmui/PLAN.md dosyasina kaydet. Sonra plani ozetle.

@@ -1,0 +1,86 @@
+SwarmUI projesinde Phase 2 ve Phase 3'u implemente edeceksin.
+Proje: /home/nlc/projects/swarmui
+PLAN.md dosyasini oku ve takip et.
+
+Mevcut durum: Phase 0 ve Phase 1 tamamlandi (auth, users, teams, roles, endpoints, settings, activity-logs).
+
+GOREV - PHASE 2: Container Yonetimi
+
+Backend (apps/backend/src/modules/):
+
+1. containers/ modulu - tam implementasyon:
+   - ContainersService: list, create, start, stop, restart, kill, pause, unpause, rename, remove, inspect
+   - ContainerLogsService: SSE stream ile log
+   - ContainerStatsService: SSE stream ile CPU/RAM/Net/Disk metrikleri
+   - ContainerExecService: WebSocket ile exec terminal
+   - ContainersController: tum endpoint'ler
+   - DTO'lar: CreateContainerDto, RenameContainerDto vs.
+
+2. images/ modulu:
+   - ImagesService: list, pull (SSE progress), remove, tag, inspect, history
+   - ImagesController
+
+3. networks/ modulu:
+   - NetworksService: list, create, remove, connect, disconnect, prune
+   - NetworksController
+
+4. volumes/ modulu:
+   - VolumesService: list, create, remove, prune, inspect
+   - VolumesController
+
+5. app.module.ts'e yeni modulleri ekle
+
+GOREV - PHASE 3: Docker Swarm Yonetimi
+
+Backend:
+
+1. swarm/ modulu:
+   - SwarmService: inspect, init, join, leave
+   - NodesService: list, inspect, update (availability/role), remove
+   - ServicesService: list, create, update, remove, scale, force-update, rollback, logs (SSE)
+   - ServiceTasksService: list tasks per service
+   - StacksService: list, deploy (compose), update, remove, get file
+   - SwarmController, NodesController, ServicesController, StacksController
+
+2. WebSocket Gateway (apps/backend/src/gateway/):
+   - docker.gateway.ts: container exec terminal, container/service log streaming, Docker events
+
+Frontend (apps/frontend/src/):
+
+3. Yeni sayfalar:
+   - pages/ContainersPage.tsx - container listesi, start/stop/restart/remove butonlari
+   - pages/ContainerDetailPage.tsx - tabs: Logs, Stats (grafik), Exec (terminal), Inspect
+   - pages/ImagesPage.tsx - image listesi, pull modal, remove
+   - pages/NetworksPage.tsx - network listesi, create, remove
+   - pages/VolumesPage.tsx - volume listesi, create, remove
+   - pages/SwarmPage.tsx - cluster ozeti, node haritasi
+   - pages/NodesPage.tsx - node listesi, availability degistir
+   - pages/ServicesPage.tsx - service listesi, scale, update
+   - pages/ServiceDetailPage.tsx - tasks, logs, scale modal
+   - pages/StacksPage.tsx - stack listesi, deploy modal
+   - pages/StackDetailPage.tsx - compose editor (Monaco), services
+
+4. Yeni componentler:
+   - components/docker/ContainerConsole.tsx (xterm.js + WebSocket)
+   - components/docker/LogViewer.tsx (SSE log stream)
+   - components/docker/StatsChart.tsx (Recharts - CPU/RAM/Net)
+   - components/docker/StatusBadge.tsx
+   - components/docker/SwarmTopology.tsx (node gorsellestirme)
+
+5. Sidebar'a yeni linkleri ekle
+
+6. React Query hooks: useContainers, useImages, useNetworks, useVolumes, useSwarm, useNodes, useServices, useStacks
+
+TEKNIK NOTLAR:
+- dockerode ile Docker Unix socket baglantisi: /var/run/docker.sock
+- WebSocket: @nestjs/websockets + socket.io
+- SSE: NestJS @Sse() decorator + Observable
+- xterm.js: npm package @xterm/xterm
+- recharts: grafik kutuphanesi
+- Monaco editor: @monaco-editor/react
+
+Tum isler bitince:
+cd /home/nlc/projects/swarmui && git add -A && git commit -m "feat: Phase 2+3 container and swarm management"
+
+Sonra bildir:
+openclaw system event --text "SwarmUI Phase 2+3 tamamlandi! Container ve Swarm yonetimi hazir." --mode now
