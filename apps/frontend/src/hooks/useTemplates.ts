@@ -9,7 +9,7 @@ export function useTemplates(category?: string, search?: string) {
       const params = new URLSearchParams();
       if (category) params.set('category', category);
       if (search) params.set('search', search);
-      return api.get(`/templates?${params.toString()}`).then((r) => r.data);
+      return api.get(`/templates?${params.toString()}`).then((r) => r.data?.data ?? r.data);
     },
   });
 }
@@ -18,7 +18,7 @@ export function useTemplateCategories() {
   return useQuery({
     queryKey: ['template-categories'],
     throwOnError: false,
-    queryFn: () => api.get('/templates/categories').then((r) => r.data),
+    queryFn: () => api.get('/templates/categories').then((r) => r.data?.data ?? r.data),
   });
 }
 

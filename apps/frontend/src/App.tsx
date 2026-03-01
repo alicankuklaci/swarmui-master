@@ -31,6 +31,34 @@ import { NotificationsPage } from '@/pages/NotificationsPage';
 import { TwoFactorPage } from '@/pages/TwoFactorPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
+import React from 'react';
+
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean; error: Error | null}> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8">
+          <h2 className="text-xl font-bold text-red-500 mb-2">Something went wrong</h2>
+          <p className="text-sm text-muted-foreground">{this.state.error?.message}</p>
+          <button className="mt-4 px-4 py-2 bg-blue-600 text-white rounded" onClick={() => this.setState({ hasError: false, error: null })}>
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -60,13 +88,13 @@ export default function App() {
           <Route path="stacks" element={<StacksPage />} />
           {/* Platform */}
           <Route path="registries" element={<RegistriesPage />} />
-          <Route path="templates" element={<TemplatesPage />} />
-          <Route path="gitops" element={<GitopsPage />} />
+          <Route path="templates" element={<ErrorBoundary><TemplatesPage /></ErrorBoundary>} />
+          <Route path="gitops" element={<ErrorBoundary><GitopsPage /></ErrorBoundary>} />
           <Route path="gitops/credentials" element={<GitCredentialsPage />} />
           <Route path="gitops/:id" element={<GitopsDetailPage />} />
           {/* Enterprise */}
-          <Route path="backup" element={<BackupPage />} />
-          <Route path="security" element={<SecurityPage />} />
+          <Route path="backup" element={<ErrorBoundary><BackupPage /></ErrorBoundary>} />
+          <Route path="security" element={<ErrorBoundary><SecurityPage /></ErrorBoundary>} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="2fa" element={<TwoFactorPage />} />
           {/* Admin */}
