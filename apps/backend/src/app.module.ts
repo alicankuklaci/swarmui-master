@@ -25,6 +25,8 @@ import { GitopsModule } from './modules/gitops/gitops.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SecurityModule } from './modules/security/security.module';
+import { HealthModule } from './modules/health/health.module';
+import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 
 @Module({
   imports: [
@@ -75,6 +77,8 @@ import { SecurityModule } from './modules/security/security.module';
     BackupModule,
     NotificationsModule,
     SecurityModule,
+    HealthModule,
+    PrometheusModule.register({ path: '/metrics' }),
   ],
 })
 export class AppModule {}

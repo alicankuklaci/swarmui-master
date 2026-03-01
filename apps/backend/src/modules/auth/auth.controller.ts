@@ -2,6 +2,7 @@ import { Controller, Post, Body, Req, Res, UseGuards, HttpCode, HttpStatus, Get 
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa.service';
 import { LoginDto } from './dto/login.dto';
@@ -18,8 +19,9 @@ export class AuthController {
   ) {}
 
   @Public()
+  @UseGuards(ThrottlerGuard, AuthGuard('local'))
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('login')
-  @UseGuards(AuthGuard('local'))
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with username/password' })
   @ApiResponse({ status: 200, description: 'Login successful' })

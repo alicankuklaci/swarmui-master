@@ -53,6 +53,9 @@ export class BackupJob {
   @Prop()
   completedAt?: Date;
 
+  @Prop()
+  nextRunAt?: Date;
+
   @Prop({ type: Types.ObjectId, ref: 'User' })
   createdBy?: Types.ObjectId;
 }
@@ -60,3 +63,4 @@ export class BackupJob {
 export const BackupJobSchema = SchemaFactory.createForClass(BackupJob);
 BackupJobSchema.index({ status: 1 });
 BackupJobSchema.index({ createdAt: -1 });
+BackupJobSchema.index({ nextRunAt: 1 });

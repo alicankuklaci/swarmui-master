@@ -41,5 +41,6 @@ export class ActivityLog {
 
 export const ActivityLogSchema = SchemaFactory.createForClass(ActivityLog);
 ActivityLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7776000 }); // 90 days TTL
+ActivityLogSchema.index({ createdAt: -1 });
 ActivityLogSchema.index({ userId: 1 });
 ActivityLogSchema.index({ action: 1 });

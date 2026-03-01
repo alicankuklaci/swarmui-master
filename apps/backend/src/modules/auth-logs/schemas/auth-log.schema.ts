@@ -31,5 +31,6 @@ export class AuthLog {
 export const AuthLogSchema = SchemaFactory.createForClass(AuthLog);
 AuthLogSchema.index({ userId: 1 });
 AuthLogSchema.index({ event: 1 });
+AuthLogSchema.index({ createdAt: -1 });
 // TTL: auto-delete after 30 days
 AuthLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 });

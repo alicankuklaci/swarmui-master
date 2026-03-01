@@ -66,3 +66,4 @@ export class GitopsDeployment {
 }
 
 export const GitopsDeploymentSchema = SchemaFactory.createForClass(GitopsDeployment);
+GitopsDeploymentSchema.index({ endpointId: 1 });

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, HttpCode, HttpStatus, DefaultValuePipe, ParseIntPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { EndpointsService } from './endpoints.service';
 import { CreateEndpointDto, UpdateEndpointDto } from './dto/endpoint.dto';
@@ -15,7 +15,11 @@ export class EndpointsController {
 
   @Get()
   @ApiOperation({ summary: 'List all endpoints' })
-  findAll(@Query('page') page?: number, @Query('limit') limit?: number, @Query('search') search?: string) {
+  findAll(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string
+  ) {
     return this.endpointsService.findAll(page, limit, search);
   }
 
