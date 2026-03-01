@@ -19,6 +19,11 @@ import { NodesPage } from '@/pages/NodesPage';
 import { ServicesPage } from '@/pages/ServicesPage';
 import { ServiceDetailPage } from '@/pages/ServiceDetailPage';
 import { StacksPage } from '@/pages/StacksPage';
+import { RegistriesPage } from '@/pages/RegistriesPage';
+import { TemplatesPage } from '@/pages/TemplatesPage';
+import { GitopsPage } from '@/pages/GitopsPage';
+import { GitopsDetailPage } from '@/pages/GitopsDetailPage';
+import { GitCredentialsPage } from '@/pages/GitCredentialsPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
 export default function App() {
@@ -48,6 +53,12 @@ export default function App() {
           <Route path="services" element={<ServicesPage />} />
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="stacks" element={<StacksPage />} />
+          {/* Platform */}
+          <Route path="registries" element={<RegistriesPage />} />
+          <Route path="templates" element={<TemplatesPage />} />
+          <Route path="gitops" element={<GitopsPage />} />
+          <Route path="gitops/credentials" element={<GitCredentialsPage />} />
+          <Route path="gitops/:id" element={<GitopsDetailPage />} />
           {/* Admin */}
           <Route path="users" element={<UsersPage />} />
           <Route path="teams" element={<TeamsPage />} />

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { TeamsModule } from './modules/teams/teams.module';
@@ -17,6 +18,9 @@ import { NetworksModule } from './modules/networks/networks.module';
 import { VolumesModule } from './modules/volumes/volumes.module';
 import { SwarmModule } from './modules/swarm/swarm.module';
 import { GatewayModule } from './gateway/gateway.module';
+import { RegistriesModule } from './modules/registries/registries.module';
+import { TemplatesModule } from './modules/templates/templates.module';
+import { GitopsModule } from './modules/gitops/gitops.module';
 
 @Module({
   imports: [
@@ -30,6 +34,17 @@ import { GatewayModule } from './gateway/gateway.module';
           connection.on('connected', () => console.log('MongoDB connected'));
           connection.on('error', (err: any) => console.error('MongoDB error:', err));
           return connection;
+        },
+      }),
+    }),
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('REDIS_HOST', 'localhost'),
+          port: config.get<number>('REDIS_PORT', 6379),
+          password: config.get<string>('REDIS_PASSWORD', 'redispassword'),
         },
       }),
     }),
@@ -49,6 +64,9 @@ import { GatewayModule } from './gateway/gateway.module';
     VolumesModule,
     SwarmModule,
     GatewayModule,
+    RegistriesModule,
+    TemplatesModule,
+    GitopsModule,
   ],
 })
 export class AppModule {}

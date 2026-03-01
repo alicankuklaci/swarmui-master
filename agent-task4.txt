@@ -1,0 +1,65 @@
+SwarmUI projesinde Phase 4'u implemente edeceksin.
+Proje: /home/nlc/projects/swarmui
+PLAN.md dosyasini oku ve takip et.
+
+Mevcut durum: Phase 0, 1, 2, 3 tamamlandi.
+
+GOREV - PHASE 4: Registry, Templates & GitOps
+
+BACKEND (apps/backend/src/modules/):
+
+1. registries/ modulu:
+   - Registry schema (MongoDB): name, type, url, username, passwordEncrypted, authentication, accessList
+   - RegistriesService: CRUD, auth test, catalog listesi, tag listesi
+   - RegistriesController: /api/v1/registries endpoint'leri
+   - Sifreli credential saklama (mevcut crypto.util.ts kullan)
+   - Desteklenen tipler: dockerhub, gcr, ecr, acr, gitlab, quay, custom
+
+2. templates/ modulu:
+   - Template schema: type (container/swarm-service/stack), title, description, logo, image, composeContent, categories, env, ports, volumes, isBuiltin, isPublic
+   - TemplatesService: CRUD, URL'den import, built-in template seed
+   - TemplateDeployService: template'den container/service/stack deploy
+   - TemplatesController: /api/v1/templates
+   - Built-in templateler seed et: Nginx, MySQL, Redis, WordPress, Grafana, Portainer Agent, Mongo gibi populer uygulamalar (en az 10 adet)
+
+3. gitops/ modulu:
+   - GitopsDeployment schema (PLAN.md'deki gibi tam)
+   - GitCredentials schema
+   - GitopsService: repo baglantisi, polling logic, deploy trigger
+   - WebhookService: GitHub/GitLab webhook handler, imza dogrulama
+   - GitCredentialsService: SSH key / PAT yonetimi (sifreli)
+   - GitopsController: /api/v1/gitops
+   - Webhook endpoint: /api/v1/gitops/webhooks/:token (public, no auth)
+
+4. BullMQ entegrasyonu:
+   - @nestjs/bullmq kurulumu
+   - GitopsPollingQueue: her X dakikada repo degisiklik kontrol
+   - app.module.ts'e ekle
+
+5. app.module.ts guncelle - yeni modulleri ekle
+
+FRONTEND (apps/frontend/src/):
+
+6. Yeni sayfalar:
+   - pages/RegistriesPage.tsx: registry listesi, ekle/duzenle/sil, auth test butonu
+   - pages/TemplatesPage.tsx: kart galerisi (logo, kategori badge, deploy butonu), filtreleme, arama
+   - pages/TemplateDeployModal.tsx: env var formu, hedef endpoint secimi, deploy
+   - pages/GitopsPage.tsx: deployment listesi, durum badge, son commit, son deploy tarihi
+   - pages/GitopsDetailPage.tsx: deploy gecmisi, ayarlar, manuel trigger, webhook URL
+   - pages/GitCredentialsPage.tsx: credentials listesi, ekle/sil
+
+7. Sidebar'a ekle: Registries, Templates, GitOps linkleri
+
+8. React Query hooks: useRegistries, useTemplates, useGitops, useGitCredentials
+
+TEKNIK NOTLAR:
+- BullMQ Redis baglantisi: localhost:6379, password: redispassword
+- Webhook imza: x-hub-signature-256 (GitHub), x-gitlab-token (GitLab)
+- Git polling: her 5 dakikada bir (konfigüre edilebilir)
+- Template deploy: dockerode ile direkt calistir
+
+Tum isler bitince:
+cd /home/nlc/projects/swarmui && git add -A && git commit -m "feat: Phase 4 - Registry, Templates & GitOps"
+
+Sonra bildir:
+openclaw system event --text "SwarmUI Phase 4 tamamlandi! Registry, Templates ve GitOps hazir." --mode now

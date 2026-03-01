@@ -3,6 +3,7 @@ import {
   LayoutDashboard, Users, UsersRound, Shield, Server, Settings,
   Activity, ChevronLeft, ChevronRight, Container, Network,
   HardDrive, Image, Layers, GitBranch, Grid3X3,
+  LayoutGrid, Package, GitMerge,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/app.store';
 import { cn } from '@/lib/utils';
@@ -31,6 +32,14 @@ const navSections = [
       { to: '/nodes', icon: Server, label: 'Nodes' },
       { to: '/services', icon: Layers, label: 'Services' },
       { to: '/stacks', icon: GitBranch, label: 'Stacks' },
+    ],
+  },
+  {
+    title: 'Platform',
+    items: [
+      { to: '/registries', icon: Package, label: 'Registries' },
+      { to: '/templates', icon: LayoutGrid, label: 'Templates' },
+      { to: '/gitops', icon: GitMerge, label: 'GitOps' },
     ],
   },
   {
