@@ -1,0 +1,81 @@
+SwarmUI projesinde Phase 5'i implemente edeceksin (OAuth/LDAP haric).
+Proje: /home/nlc/projects/swarmui
+PLAN.md dosyasini oku ve takip et.
+
+Mevcut durum: Phase 0-4 tamamlandi.
+
+GOREV - PHASE 5: Enterprise Ozellikler (OAuth/LDAP haric)
+
+BACKEND (apps/backend/src/modules/):
+
+1. backup/ modulu:
+   - BackupJob schema (PLAN.md'deki tam schema)
+   - BackupService: MongoDB dump al, config dosyalarini zip'le, local kaydet
+   - ScheduledBackupService: @nestjs/schedule ile cron backup
+   - S3BackupService: AWS S3 / MinIO'ya upload (@aws-sdk/client-s3)
+   - RestoreService: backup dosyasindan geri yukle
+   - BackupController: /api/v1/backup
+
+2. notifications/ modulu:
+   - Notification schema (PLAN.md'deki tam schema)
+   - NotificationsService: in-app bildirim CRUD
+   - EmailNotificationService: nodemailer ile SMTP
+   - WebhookNotificationService: Slack/Teams/custom webhook
+   - EventBusService: NestJS EventEmitter2 ile ic event
+   - NotificationsController: /api/v1/notifications
+   - Olaylar: container stop/crash, stack deploy, backup complete, gitops deploy
+
+3. security/ modulu:
+   - SecurityPolicy schema (PLAN.md'deki tam schema)
+   - SecurityPolicyService: politika CRUD, container'a uygula
+   - TrivyScanService: trivy CLI ile image scan (trivy yuklu degilse skip et, graceful)
+   - SecretsService: Docker secrets CRUD (swarm)
+   - ConfigsService: Docker configs CRUD (swarm)
+   - SecurityController: /api/v1/security
+
+4. auth/ modulune 2FA ekle:
+   - MfaService: speakeasy ile TOTP, QR kod uret
+   - Yeni endpoint'ler: POST /api/v1/auth/mfa/enable, /mfa/verify, /mfa/disable
+   - Login flow'una MFA kontrolu ekle
+
+5. Auth logs modulu guncelle:
+   - TTL index ekle (30 gun)
+   - Export endpoint: GET /api/v1/logs/auth?export=csv
+
+6. Activity logs:
+   - TTL index ekle (90 gun)
+   - Export: GET /api/v1/activity-logs?export=csv
+
+7. Settings'e ekle:
+   - SMTP konfigurasyonu
+   - Log retention ayarlari
+   - Webhook notification URL'leri
+
+FRONTEND (apps/frontend/src/):
+
+8. Yeni sayfalar:
+   - pages/BackupPage.tsx: job listesi, manuel backup butonu, restore, gecmis
+   - pages/SecurityPage.tsx: policy listesi, image scan baslat, sonuclari goster
+   - pages/NotificationsPage.tsx: bildirim merkezi, okundu/okunmadi
+   - pages/AuthLogsPage.tsx: filtreli auth log tablosu, CSV export butonu
+   - pages/TwoFactorPage.tsx: QR kod goster, enable/disable 2FA
+   - pages/SettingsPage.tsx guncelle: SMTP, notification webhook, log retention sekmeleri ekle
+
+9. Topbar'a bildirim zili guncelle: badge sayisi, dropdown ile son bildirimler
+
+10. Sidebar'a ekle: Backup, Security, Auth Logs
+
+11. React Query hooks: useBackup, useNotifications, useSecurity, useAuthLogs
+
+TEKNIK NOTLAR:
+- nodemailer: SMTP email
+- speakeasy + qrcode: TOTP 2FA
+- @aws-sdk/client-s3: S3 backup
+- EventEmitter2: ic event bus
+- Trivy: exec ile calistir, yoksa graceful skip
+
+Tum isler bitince:
+cd /home/nlc/projects/swarmui && git add -A && git commit -m "feat: Phase 5 - Backup, Security, 2FA, Notifications"
+
+Sonra bildir:
+openclaw system event --text "SwarmUI Phase 5 tamamlandi! Backup, Security, 2FA ve Notifications hazir." --mode now

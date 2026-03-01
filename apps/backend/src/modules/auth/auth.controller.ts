@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { MfaService } from './mfa.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -11,7 +12,10 @@ import { Public } from '../../common/decorators/public.decorator';
 @ApiTags('Auth')
 @Controller({ path: 'auth', version: '1' })
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly mfaService: MfaService,
+  ) {}
 
   @Public()
   @Post('login')
@@ -58,5 +62,41 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user profile' })
   async me(@CurrentUser() user: any) {
     return user;
+  }
+
+  @Get('mfa/setup')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Generate MFA secret and QR code' })
+  async mfaSetup(@CurrentUser('id') userId: string) {
+    return this.mfaService.generateSecret(userId);
+  }
+
+  @Post('mfa/enable')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Enable MFA with TOTP token verification' })
+  async mfaEnable(@CurrentUser('id') userId: string, @Body('token') token: string) {
+    return this.mfaService.enableMfa(userId, token);
+  }
+
+  @Post('mfa/verify')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify MFA token' })
+  async mfaVerify(@CurrentUser('id') userId: string, @Body('token') token: string) {
+    const valid = await this.mfaService.verifyMfaToken(userId, token);
+    return { valid };
+  }
+
+  @Post('mfa/disable')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Disable MFA' })
+  async mfaDisable(@CurrentUser('id') userId: string, @Body('token') token: string) {
+    return this.mfaService.disableMfa(userId, token);
   }
 }

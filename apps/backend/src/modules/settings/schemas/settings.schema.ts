@@ -28,6 +28,38 @@ export class Settings {
 
   @Prop({ default: true })
   enableTelemetry: boolean;
+
+  // SMTP configuration
+  @Prop({ type: Object })
+  smtp?: {
+    host?: string;
+    port?: number;
+    user?: string;
+    pass?: string;
+    from?: string;
+    secure?: boolean;
+  };
+
+  // Log retention (days)
+  @Prop({ default: 30 })
+  authLogRetentionDays: number;
+
+  @Prop({ default: 90 })
+  activityLogRetentionDays: number;
+
+  // Notification webhooks
+  @Prop({ type: [Object], default: [] })
+  webhooks?: Array<{
+    name: string;
+    url: string;
+    type: 'slack' | 'teams' | 'custom';
+    enabled: boolean;
+    events: string[];
+  }>;
+
+  // Email notification recipients
+  @Prop({ type: [String], default: [] })
+  notificationEmails?: string[];
 }
 
 export const SettingsSchema = SchemaFactory.createForClass(Settings);

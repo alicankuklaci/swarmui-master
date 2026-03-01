@@ -34,6 +34,18 @@ export class User {
 
   @Prop()
   avatarUrl?: string;
+
+  @Prop({ default: false })
+  mfaEnabled: boolean;
+
+  @Prop({ select: false })
+  mfaSecret?: string;
+
+  @Prop({ select: false })
+  mfaTempSecret?: string;
+
+  @Prop({ type: [String], select: false, default: [] })
+  mfaBackupCodes: string[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

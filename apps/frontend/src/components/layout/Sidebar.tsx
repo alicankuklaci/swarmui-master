@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, UsersRound, Shield, Server, Settings,
   Activity, ChevronLeft, ChevronRight, Container, Network,
   HardDrive, Image, Layers, GitBranch, Grid3X3,
-  LayoutGrid, Package, GitMerge,
+  LayoutGrid, Package, GitMerge, HardDriveDownload, Lock, KeyRound, Bell,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/app.store';
 import { cn } from '@/lib/utils';
@@ -43,12 +43,21 @@ const navSections = [
     ],
   },
   {
+    title: 'Enterprise',
+    items: [
+      { to: '/backup', icon: HardDriveDownload, label: 'Backup' },
+      { to: '/security', icon: Lock, label: 'Security' },
+      { to: '/notifications', icon: Bell, label: 'Notifications' },
+    ],
+  },
+  {
     title: 'Admin',
     items: [
       { to: '/users', icon: Users, label: 'Users' },
       { to: '/teams', icon: UsersRound, label: 'Teams' },
       { to: '/roles', icon: Shield, label: 'Roles' },
       { to: '/activity-logs', icon: Activity, label: 'Activity Logs' },
+      { to: '/auth-logs', icon: KeyRound, label: 'Auth Logs' },
       { to: '/settings', icon: Settings, label: 'Settings' },
     ],
   },
@@ -64,7 +73,6 @@ export function Sidebar() {
         sidebarOpen ? 'w-64' : 'w-16',
       )}
     >
-      {/* Logo */}
       <div className="flex items-center justify-between px-4 py-4 border-b border-gray-700">
         {sidebarOpen && (
           <div className="flex items-center gap-2">
@@ -86,7 +94,6 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 py-2 overflow-y-auto">
         {navSections.map((section, si) => (
           <div key={si} className="mb-1">
@@ -118,7 +125,6 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Collapse button when closed */}
       {!sidebarOpen && (
         <div className="pb-4 flex justify-center">
           <button onClick={toggleSidebar} className="p-2 rounded hover:bg-gray-700 transition-colors">

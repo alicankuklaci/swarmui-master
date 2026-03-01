@@ -11,6 +11,7 @@ import { RolesModule } from './modules/roles/roles.module';
 import { EndpointsModule } from './modules/endpoints/endpoints.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { ActivityLogsModule } from './modules/activity-logs/activity-logs.module';
+import { AuthLogsModule } from './modules/auth-logs/auth-logs.module';
 import { DockerModule } from './docker/docker.module';
 import { ContainersModule } from './modules/containers/containers.module';
 import { ImagesModule } from './modules/images/images.module';
@@ -21,6 +22,9 @@ import { GatewayModule } from './gateway/gateway.module';
 import { RegistriesModule } from './modules/registries/registries.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { GitopsModule } from './modules/gitops/gitops.module';
+import { BackupModule } from './modules/backup/backup.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { SecurityModule } from './modules/security/security.module';
 
 @Module({
   imports: [
@@ -57,6 +61,7 @@ import { GitopsModule } from './modules/gitops/gitops.module';
     EndpointsModule,
     SettingsModule,
     ActivityLogsModule,
+    AuthLogsModule,
     DockerModule,
     ContainersModule,
     ImagesModule,
@@ -67,6 +72,9 @@ import { GitopsModule } from './modules/gitops/gitops.module';
     RegistriesModule,
     TemplatesModule,
     GitopsModule,
+    BackupModule,
+    NotificationsModule,
+    SecurityModule,
   ],
 })
 export class AppModule {}
