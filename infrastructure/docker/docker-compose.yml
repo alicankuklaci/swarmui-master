@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   mongodb:
-    image: mongo:4.4
+    image: mongo:6.0
     container_name: swarmui-mongodb
     restart: unless-stopped
     environment:
