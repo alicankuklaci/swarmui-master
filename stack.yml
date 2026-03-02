@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: alicankuklaci/swarmui-master-frontend:latest
+    ports:
+      - "1519:80"
+    networks:
+      - swarmui-master-net
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+  backend:
+    image: alicankuklaci/swarmui-master-backend:latest
+    environment:
+      NODE_ENV: production
+      BACKEND_PORT: 3001
+      FRONTEND_URL: http://localhost:1519
+      CORS_ORIGINS: http://localhost:1519
+      MONGODB_URI: mongodb://admin:MONGO_PASS@mongo:27017/swarmui-master?authSource=admin
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      THROTTLE_TTL: 60000
+      THROTTLE_LIMIT: 100
+      DOCKER_SOCKET_PATH: /var/run/docker.sock
+    secrets:
+      - jwt_access_secret
+      - jwt_refresh_secret
+      - mongo_password
+      - redis_password
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - swarmui-master-net
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  mongo:
+    image: mongo:6.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_DATABASE: swarmui-master
+    secrets:
+      - source: mongo_password
+        target: /run/secrets/mongo_password
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - swarmui-master-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  redis:
+    image: redis:7.2-alpine
+    command: sh -c "redis-server --requirepass $$(cat /run/secrets/redis_password)"
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - swarmui-master-net
+    deploy:
+      replicas: 1
+
+volumes:
+  mongo_data:
+  redis_data:
+
+networks:
+  swarmui-master-net:
+    driver: overlay
+
+secrets:
+  mongo_password:
+    external: true
+  redis_password:
+    external: true
+  jwt_access_secret:
+    external: true
+  jwt_refresh_secret:
+    external: true
