@@ -28,16 +28,16 @@ export class UsersService implements OnModuleInit {
   private async seedAdminUser() {
     const count = await this.userModel.countDocuments();
     if (count === 0) {
-      const hashedPassword = await bcrypt.hash('admin123!', this.SALT_ROUNDS);
+      const hashedPassword = await bcrypt.hash('root', this.SALT_ROUNDS);
       await this.userModel.create({
-        username: 'admin',
-        email: 'admin@swarmui.local',
+        username: 'root',
+        email: 'root@swarmui.local',
         password: hashedPassword,
         role: 'admin',
         isActive: true,
         forceChangePassword: true,
       });
-      this.logger.log('Default admin user created: admin / admin123!');
+      this.logger.log('Default admin user created: root / root');
     }
   }
 

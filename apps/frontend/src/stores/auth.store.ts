@@ -32,7 +32,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'swarmui-auth',
-      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({ accessToken: state.accessToken, user: state.user, isAuthenticated: state.isAuthenticated }),
     },
   ),
 );
