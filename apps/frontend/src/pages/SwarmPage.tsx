@@ -16,7 +16,7 @@ export function SwarmPage() {
   const workers = totalNodes - managers;
 
   // services count is not in swarm info directly; show from swarm JoinTokens presence
-  const inSwarm = !!swarmInfo?.ID;
+  const inSwarm = !!swarmInfo?.nodeId || !!swarmInfo?.ID || !!swarmInfo?.localNodeState;
 
   if (isLoading) {
     return (
