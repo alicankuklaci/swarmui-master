@@ -6,7 +6,7 @@ import { Observable } from 'rxjs';
 import { ServicesService } from './services.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 
-@Controller('api/endpoints/:endpointId/swarm/services')
+@Controller('endpoints/:endpointId/swarm/services')
 @UseGuards(JwtAuthGuard)
 export class ServicesController {
   constructor(private readonly servicesService: ServicesService) {}
