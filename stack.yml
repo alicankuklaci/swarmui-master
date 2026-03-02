@@ -31,9 +31,8 @@ services:
       THROTTLE_TTL: 60000
       THROTTLE_LIMIT: 100
       DOCKER_SOCKET_PATH: /var/run/docker.sock
-    secrets:
-      - jwt_access_secret
-      - jwt_refresh_secret
+      JWT_ACCESS_SECRET: "REDACTED-JWT-ACCESS-SECRET"
+      JWT_REFRESH_SECRET: "REDACTED-JWT-REFRESH-SECRET"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -76,8 +75,3 @@ networks:
   swarmui-master-net:
     driver: overlay
 
-secrets:
-  jwt_access_secret:
-    external: true
-  jwt_refresh_secret:
-    external: true
