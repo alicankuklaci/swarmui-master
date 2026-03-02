@@ -17,21 +17,15 @@ services:
 
   backend:
     image: alicankuklaci/swarmui-master-backend:latest
-    command: >
-      sh -c "export MONGO_PASSWORD=$$(cat /run/secrets/mongo_password) && \
-             export REDIS_PASSWORD=$$(cat /run/secrets/redis_password) && \
-             export JWT_ACCESS_SECRET=$$(cat /run/secrets/jwt_access_secret) && \
-             export JWT_REFRESH_SECRET=$$(cat /run/secrets/jwt_refresh_secret) && \
-             node apps/backend/dist/main"
     environment:
       NODE_ENV: production
       BACKEND_PORT: 3001
-      FRONTEND_URL: http://localhost:1519
-      CORS_ORIGINS: http://localhost:1519
-      MONGODB_URI: mongodb://admin:${MONGO_PASSWORD}@mongo:27017/swarmui-master?authSource=admin
+      FRONTEND_URL: http://212.83.131.111:1519
+      CORS_ORIGINS: http://212.83.131.111:1519
+      MONGODB_URI: mongodb://admin:151575!s@mongo:27017/swarmui-master?authSource=admin
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: "151575!s"
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       THROTTLE_TTL: 60000
@@ -40,8 +34,6 @@ services:
     secrets:
       - jwt_access_secret
       - jwt_refresh_secret
-      - mongo_password
-      - redis_password
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -55,10 +47,8 @@ services:
     image: mongo:4.4
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_password
+      MONGO_INITDB_ROOT_PASSWORD: "151575!s"
       MONGO_INITDB_DATABASE: swarmui-master
-    secrets:
-      - mongo_password
     volumes:
       - mongo_data:/data/db
     networks:
@@ -70,9 +60,7 @@ services:
 
   redis:
     image: redis:7.2-alpine
-    command: sh -c "redis-server --requirepass $$(cat /run/secrets/redis_password)"
-    secrets:
-      - redis_password
+    command: redis-server --requirepass "151575!s"
     volumes:
       - redis_data:/data
     networks:
@@ -89,10 +77,6 @@ networks:
     driver: overlay
 
 secrets:
-  mongo_password:
-    external: true
-  redis_password:
-    external: true
   jwt_access_secret:
     external: true
   jwt_refresh_secret:
