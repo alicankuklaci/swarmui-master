@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Trash2, Download, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,7 @@ import {
 import { useImages, useRemoveImage, usePruneImages } from '@/hooks/useDocker';
 import { api } from '@/lib/api';
 
-const ENDPOINT_ID = 'local';
+
 
 function formatSize(bytes: number): string {
   if (!bytes) return '-';
@@ -35,6 +36,7 @@ function parseRepoTag(repoTag: string): { repo: string; tag: string } {
 }
 
 export function ImagesPage() {
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
   const [pullOpen, setPullOpen] = useState(false);
   const [pruneOpen, setPruneOpen] = useState(false);
   const [imageName, setImageName] = useState('');
@@ -42,9 +44,9 @@ export function ImagesPage() {
   const [pullError, setPullError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: images, isLoading } = useImages(ENDPOINT_ID);
-  const removeMutation = useRemoveImage(ENDPOINT_ID);
-  const pruneMutation = usePruneImages(ENDPOINT_ID);
+  const { data: images, isLoading } = useImages(endpointId);
+  const removeMutation = useRemoveImage(endpointId);
+  const pruneMutation = usePruneImages(endpointId);
 
   async function handlePull() {
     if (!imageName.trim()) return;

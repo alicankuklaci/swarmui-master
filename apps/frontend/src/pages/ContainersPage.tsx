@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Play, Square, RotateCw, Trash2, Search, Loader2 } from 'lucide-react';
@@ -6,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/docker/StatusBadge';
 import { useContainers, useContainerAction, useRemoveContainer } from '@/hooks/useDocker';
 
-const ENDPOINT_ID = 'local';
+
 
 function formatPorts(ports: any[]): string {
   if (!ports || ports.length === 0) return '-';
@@ -27,13 +28,14 @@ function cleanName(names: string[]): string {
 }
 
 export function ContainersPage() {
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
   const [showAll, setShowAll] = useState(true);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const { data: containers, isLoading } = useContainers(ENDPOINT_ID, showAll);
-  const actionMutation = useContainerAction(ENDPOINT_ID);
-  const removeMutation = useRemoveContainer(ENDPOINT_ID);
+  const { data: containers, isLoading } = useContainers(endpointId, showAll);
+  const actionMutation = useContainerAction(endpointId);
+  const removeMutation = useRemoveContainer(endpointId);
 
   const filtered = (containers || []).filter((c: any) => {
     const name = cleanName(c.Names || []);

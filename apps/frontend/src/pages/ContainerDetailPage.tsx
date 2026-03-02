@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { Link, useParams } from 'react-router-dom';
 import { useContainer } from '@/hooks/useDocker';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -8,13 +9,14 @@ import { StatsChart } from '@/components/docker/StatsChart';
 import { ContainerConsole } from '@/components/docker/ContainerConsole';
 import { ArrowLeftIcon } from 'lucide-react';
 
-const ENDPOINT_ID = 'local';
+
 
 export function ContainerDetailPage() {
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
   const { id } = useParams<{ id: string }>();
   const containerId = id ?? '';
 
-  const { data: container, isLoading } = useContainer(ENDPOINT_ID, containerId);
+  const { data: container, isLoading } = useContainer(endpointId, containerId);
 
   const name =
     container?.Name?.replace(/^\//, '') ??
@@ -73,17 +75,17 @@ export function ContainerDetailPage() {
 
         {/* Logs Tab */}
         <TabsContent value="logs" className="mt-4">
-          <LogViewer endpointId={ENDPOINT_ID} containerId={containerId} />
+          <LogViewer endpointId={endpointId} containerId={containerId} />
         </TabsContent>
 
         {/* Stats Tab */}
         <TabsContent value="stats" className="mt-4">
-          <StatsChart endpointId={ENDPOINT_ID} containerId={containerId} />
+          <StatsChart endpointId={endpointId} containerId={containerId} />
         </TabsContent>
 
         {/* Console Tab */}
         <TabsContent value="console" className="mt-4">
-          <ContainerConsole endpointId={ENDPOINT_ID} containerId={containerId} />
+          <ContainerConsole endpointId={endpointId} containerId={containerId} />
         </TabsContent>
 
         {/* Inspect Tab */}
