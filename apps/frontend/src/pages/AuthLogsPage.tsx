@@ -30,7 +30,7 @@ export function AuthLogsPage() {
       const res = await api.get('/logs/auth', {
         params: { limit: 100, username: search || undefined, event: eventFilter || undefined },
       });
-      return res.data;
+      return res.data?.data ?? res.data;
     },
   });
 
@@ -41,7 +41,7 @@ export function AuthLogsPage() {
     window.open(`/api/v1/logs/auth?${params.toString()}`, '_blank');
   };
 
-  const logs = data?.data || [];
+  const logs = data || [];
 
   return (
     <div className="space-y-6">

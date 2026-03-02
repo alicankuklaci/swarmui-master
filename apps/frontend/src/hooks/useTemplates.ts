@@ -26,7 +26,7 @@ export function useTemplate(id: string) {
   return useQuery({
     queryKey: ['template', id],
     throwOnError: false,
-    queryFn: () => api.get(`/templates/${id}`).then((r) => r.data),
+    queryFn: () => api.get(`/templates/${id}`).then((r) => r.data?.data ?? r.data),
     enabled: !!id,
   });
 }
@@ -34,7 +34,7 @@ export function useTemplate(id: string) {
 export function useCreateTemplate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (dto: any) => api.post('/templates', dto).then((r) => r.data),
+    mutationFn: (dto: any) => api.post('/templates', dto).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
   });
 }
@@ -42,7 +42,7 @@ export function useCreateTemplate() {
 export function useUpdateTemplate(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (dto: any) => api.patch(`/templates/${id}`, dto).then((r) => r.data),
+    mutationFn: (dto: any) => api.patch(`/templates/${id}`, dto).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
   });
 }
@@ -50,7 +50,7 @@ export function useUpdateTemplate(id: string) {
 export function useRemoveTemplate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete(`/templates/${id}`).then((r) => r.data),
+    mutationFn: (id: string) => api.delete(`/templates/${id}`).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['templates'] }),
   });
 }
@@ -58,6 +58,6 @@ export function useRemoveTemplate() {
 export function useDeployTemplate() {
   return useMutation({
     mutationFn: ({ id, dto }: { id: string; dto: any }) =>
-      api.post(`/templates/${id}/deploy`, dto).then((r) => r.data),
+      api.post(`/templates/${id}/deploy`, dto).then((r) => r.data?.data ?? r.data),
   });
 }

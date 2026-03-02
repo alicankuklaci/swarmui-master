@@ -51,7 +51,7 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">SwarmUI system overview</p>
+        <p className="text-muted-foreground">SwarmUI Master system overview</p>
       </div>
 
       {/* Stats Grid */}
@@ -123,7 +123,7 @@ export function DashboardPage() {
           <CardContent className="space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Platform</span>
-              <span className="font-medium">SwarmUI v1.0</span>
+              <span className="font-medium">SwarmUI Master v1.0</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Auth Method</span>

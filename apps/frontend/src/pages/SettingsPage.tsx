@@ -105,7 +105,7 @@ export function SettingsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Login Banner Message</Label>
-                    <Input {...register('loginBannerMessage')} placeholder="Welcome to SwarmUI" className="max-w-md" />
+                    <Input {...register('loginBannerMessage')} placeholder="Welcome to SwarmUI Master" className="max-w-md" />
                   </div>
                 </CardContent>
               </Card>
@@ -123,7 +123,7 @@ export function SettingsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>From Address</Label>
-                    <Input {...register('smtp.from')} placeholder="SwarmUI <noreply@example.com>" className="max-w-md" />
+                    <Input {...register('smtp.from')} placeholder="SwarmUI Master <noreply@example.com>" className="max-w-md" />
                   </div>
                   <div className="pt-2 border-t space-y-2">
                     <Label>Test Email</Label>

@@ -42,6 +42,9 @@ export class UsersService implements OnModuleInit {
   }
 
   async findAll(page = 1, limit = 20, search?: string) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Number(limit) || 20);
+
     const filter: any = {};
     if (search) {
       filter.$or = [
@@ -50,10 +53,10 @@ export class UsersService implements OnModuleInit {
       ];
     }
     const [data, total] = await Promise.all([
-      this.userModel.find(filter).select('-password').skip((page - 1) * limit).limit(limit).sort({ createdAt: -1 }).lean(),
+      this.userModel.find(filter).select('-password').skip((safePage - 1) * safeLimit).limit(safeLimit).sort({ createdAt: -1 }).lean(),
       this.userModel.countDocuments(filter),
     ]);
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+        return { data, total, page: safePage, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) };
   }
 
   async findById(id: string) {
