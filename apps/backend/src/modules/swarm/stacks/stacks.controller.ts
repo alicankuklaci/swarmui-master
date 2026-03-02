@@ -6,7 +6,7 @@ import { Response } from 'express';
 import { StacksService } from './stacks.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 
-@Controller('api/endpoints/:endpointId/swarm/stacks')
+@Controller('endpoints/:endpointId/swarm/stacks')
 @UseGuards(JwtAuthGuard)
 export class StacksController {
   constructor(private readonly stacksService: StacksService) {}

@@ -6,7 +6,7 @@ import { Observable } from 'rxjs';
 import { ImagesService } from './images.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
-@Controller('api/endpoints/:endpointId/images')
+@Controller('endpoints/:endpointId/images')
 @UseGuards(JwtAuthGuard)
 export class ImagesController {
   constructor(private readonly imagesService: ImagesService) {}

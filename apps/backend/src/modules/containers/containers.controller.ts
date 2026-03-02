@@ -7,7 +7,7 @@ import { ContainersService } from './containers.service';
 import { CreateContainerDto, RenameContainerDto } from './dto/container.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
-@Controller('api/endpoints/:endpointId/containers')
+@Controller('endpoints/:endpointId/containers')
 @UseGuards(JwtAuthGuard)
 export class ContainersController {
   constructor(private readonly containersService: ContainersService) {}

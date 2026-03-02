@@ -5,7 +5,7 @@ import {
 import { NetworksService } from './networks.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
-@Controller('api/endpoints/:endpointId/networks')
+@Controller('endpoints/:endpointId/networks')
 @UseGuards(JwtAuthGuard)
 export class NetworksController {
   constructor(private readonly networksService: NetworksService) {}

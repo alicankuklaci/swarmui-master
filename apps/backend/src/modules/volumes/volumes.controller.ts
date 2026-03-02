@@ -5,7 +5,7 @@ import {
 import { VolumesService } from './volumes.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
-@Controller('api/endpoints/:endpointId/volumes')
+@Controller('endpoints/:endpointId/volumes')
 @UseGuards(JwtAuthGuard)
 export class VolumesController {
   constructor(private readonly volumesService: VolumesService) {}

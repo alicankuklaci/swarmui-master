@@ -5,7 +5,7 @@ import {
 import { NodesService } from './nodes.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 
-@Controller('api/endpoints/:endpointId/swarm/nodes')
+@Controller('endpoints/:endpointId/swarm/nodes')
 @UseGuards(JwtAuthGuard)
 export class NodesController {
   constructor(private readonly nodesService: NodesService) {}
