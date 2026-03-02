@@ -45,13 +45,13 @@ services:
         condition: on-failure
 
   mongo:
-    image: mongo:6.0
+    image: mongo:4.4
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_password
       MONGO_INITDB_DATABASE: swarmui-master
     secrets:
-      - source: mongo_password
-        target: /run/secrets/mongo_password
+      - mongo_password
     volumes:
       - mongo_data:/data/db
     networks:
