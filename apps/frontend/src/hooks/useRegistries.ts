@@ -4,14 +4,14 @@ import { api } from '@/lib/api';
 export function useRegistries() {
   return useQuery({
     queryKey: ['registries'],
-    queryFn: () => api.get('/registries').then((r) => r.data),
+    queryFn: () => api.get('/registries').then((r) => r.data?.data ?? r.data),
   });
 }
 
 export function useRegistry(id: string) {
   return useQuery({
     queryKey: ['registry', id],
-    queryFn: () => api.get(`/registries/${id}`).then((r) => r.data),
+    queryFn: () => api.get(`/registries/${id}`).then((r) => r.data?.data ?? r.data),
     enabled: !!id,
   });
 }
@@ -19,7 +19,7 @@ export function useRegistry(id: string) {
 export function useCreateRegistry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (dto: any) => api.post('/registries', dto).then((r) => r.data),
+    mutationFn: (dto: any) => api.post('/registries', dto).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['registries'] }),
   });
 }
@@ -27,7 +27,7 @@ export function useCreateRegistry() {
 export function useUpdateRegistry(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (dto: any) => api.patch(`/registries/${id}`, dto).then((r) => r.data),
+    mutationFn: (dto: any) => api.patch(`/registries/${id}`, dto).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['registries'] }),
   });
 }
@@ -35,13 +35,13 @@ export function useUpdateRegistry(id: string) {
 export function useRemoveRegistry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete(`/registries/${id}`).then((r) => r.data),
+    mutationFn: (id: string) => api.delete(`/registries/${id}`).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['registries'] }),
   });
 }
 
 export function useTestRegistryAuth() {
   return useMutation({
-    mutationFn: (id: string) => api.post(`/registries/${id}/test`).then((r) => r.data),
+    mutationFn: (id: string) => api.post(`/registries/${id}/test`).then((r) => r.data?.data ?? r.data),
   });
 }

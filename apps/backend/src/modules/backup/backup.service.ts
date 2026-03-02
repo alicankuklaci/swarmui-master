@@ -28,12 +28,16 @@ export class BackupService {
   }
 
   async findAll(page = 1, limit = 20) {
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Number(limit) || 20);
+    const skip = (safePage - 1) * safeLimit;
+
+    
     const [data, total] = await Promise.all([
-      this.backupModel.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      this.backupModel.find().sort({ createdAt: -1 }).skip(skip).limit(safeLimit).lean(),
       this.backupModel.countDocuments(),
     ]);
-    return { data, total, page, limit };
+        return { data, total, page: safePage, limit: safeLimit };
   }
 
   async findOne(id: string) {

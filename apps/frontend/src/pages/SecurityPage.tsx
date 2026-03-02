@@ -32,7 +32,7 @@ export function SecurityPage() {
     queryKey: ['security-policies'],
     queryFn: async () => {
       const res = await api.get('/security/policies');
-      return res.data;
+      return res.data?.data ?? res.data;
     },
   });
 
@@ -41,7 +41,7 @@ export function SecurityPage() {
     queryKey: ['trivy-status'],
     queryFn: async () => {
       const res = await api.get('/security/trivy/status');
-      return res.data;
+      return res.data?.data ?? res.data;
     },
   });
 
@@ -50,7 +50,7 @@ export function SecurityPage() {
     queryKey: ['docker-secrets'],
     queryFn: async () => {
       const res = await api.get('/security/secrets');
-      return res.data;
+      return res.data?.data ?? res.data;
     },
   });
 

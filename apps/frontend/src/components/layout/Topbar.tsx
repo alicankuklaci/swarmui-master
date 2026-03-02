@@ -77,7 +77,7 @@ export function Topbar() {
   return (
     <header className="h-16 border-b bg-background flex items-center justify-between px-6 flex-shrink-0">
       <div className="flex items-center gap-2">
-        <h1 className="text-lg font-semibold text-foreground">SwarmUI</h1>
+        <h1 className="text-lg font-semibold text-foreground">SwarmUI Master</h1>
       </div>
 
       <div className="flex items-center gap-4">

@@ -36,7 +36,7 @@ export function BackupPage() {
     queryKey: ['backups'],
     queryFn: async () => {
       const res = await api.get('/backup');
-      return res.data;
+      return res.data?.data ?? res.data;
     },
     refetchInterval: 5000,
   });
@@ -59,7 +59,7 @@ export function BackupPage() {
     },
   });
 
-  const jobs = data?.data || [];
+  const jobs = data || [];
 
   return (
     <div className="space-y-6">
