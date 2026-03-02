@@ -1,15 +1,17 @@
+import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { useNodes, useUpdateNode, useRemoveNode } from '@/hooks/useDocker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-const ENDPOINT_ID = 'local';
+
 
 export function NodesPage() {
-  const { data: nodes, isLoading } = useNodes(ENDPOINT_ID);
-  const updateNode = useUpdateNode(ENDPOINT_ID);
-  const removeNode = useRemoveNode(ENDPOINT_ID);
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
+  const { data: nodes, isLoading } = useNodes(endpointId);
+  const updateNode = useUpdateNode(endpointId);
+  const removeNode = useRemoveNode(endpointId);
 
   const [removeTarget, setRemoveTarget] = useState<{ id: string; hostname: string } | null>(null);
   const [removing, setRemoving] = useState(false);

@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,7 @@ import {
 } from '@/components/ui/select';
 import { useNetworks, useCreateNetwork, useRemoveNetwork } from '@/hooks/useDocker';
 
-const ENDPOINT_ID = 'local';
+
 
 // Docker built-in networks that cannot be removed
 const BUILTIN_NETWORKS = new Set(['bridge', 'host', 'none']);
@@ -60,15 +61,16 @@ function getContainerCount(network: any): number {
 }
 
 export function NetworksPage() {
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
   const [createOpen, setCreateOpen] = useState(false);
   const [networkName, setNetworkName] = useState('');
   const [driver, setDriver] = useState('bridge');
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const { data: networks, isLoading } = useNetworks(ENDPOINT_ID);
-  const createMutation = useCreateNetwork(ENDPOINT_ID);
-  const removeMutation = useRemoveNetwork(ENDPOINT_ID);
+  const { data: networks, isLoading } = useNetworks(endpointId);
+  const createMutation = useCreateNetwork(endpointId);
+  const removeMutation = useRemoveNetwork(endpointId);
 
   function openCreate() {
     setNetworkName('');

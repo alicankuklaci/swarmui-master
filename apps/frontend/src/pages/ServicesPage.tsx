@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useServices, useScaleService, useRemoveService } from '@/hooks/useDocker';
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { PlusIcon } from 'lucide-react';
 
-const ENDPOINT_ID = 'local';
+
 
 function formatPorts(ports: any[]): string {
   if (!ports || ports.length === 0) return '—';
@@ -51,9 +52,10 @@ function getUpdatedAt(service: any): string {
 }
 
 export function ServicesPage() {
-  const { data: services, isLoading } = useServices(ENDPOINT_ID);
-  const scaleService = useScaleService(ENDPOINT_ID);
-  const removeService = useRemoveService(ENDPOINT_ID);
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
+  const { data: services, isLoading } = useServices(endpointId);
+  const scaleService = useScaleService(endpointId);
+  const removeService = useRemoveService(endpointId);
 
   const [scaleTarget, setScaleTarget] = useState<{ id: string; name: string; current: number } | null>(null);
   const [replicaInput, setReplicaInput] = useState('');

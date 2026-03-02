@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Plus, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,18 +12,19 @@ import {
 } from '@/components/ui/dialog';
 import { useVolumes, useCreateVolume, useRemoveVolume } from '@/hooks/useDocker';
 
-const ENDPOINT_ID = 'local';
+
 
 export function VolumesPage() {
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
   const [createOpen, setCreateOpen] = useState(false);
   const [volumeName, setVolumeName] = useState('');
   const [volumeDriver, setVolumeDriver] = useState('local');
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const { data: volumesData, isLoading } = useVolumes(ENDPOINT_ID);
-  const createMutation = useCreateVolume(ENDPOINT_ID);
-  const removeMutation = useRemoveVolume(ENDPOINT_ID);
+  const { data: volumesData, isLoading } = useVolumes(endpointId);
+  const createMutation = useCreateVolume(endpointId);
+  const removeMutation = useRemoveVolume(endpointId);
 
   // Docker API returns { Volumes: [...], Warnings: [...] }
   const volumes: any[] = volumesData?.Volumes ?? volumesData ?? [];

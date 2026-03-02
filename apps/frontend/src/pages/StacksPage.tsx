@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStacks, useDeployStack, useRemoveStack } from '@/hooks/useDocker';
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { PlusIcon } from 'lucide-react';
 
-const ENDPOINT_ID = 'local';
+
 
 const PLACEHOLDER_COMPOSE = `version: '3.8'
 services:
@@ -26,9 +27,10 @@ services:
 `;
 
 export function StacksPage() {
-  const { data: stacks, isLoading } = useStacks(ENDPOINT_ID);
-  const deployStack = useDeployStack(ENDPOINT_ID);
-  const removeStack = useRemoveStack(ENDPOINT_ID);
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
+  const { data: stacks, isLoading } = useStacks(endpointId);
+  const deployStack = useDeployStack(endpointId);
+  const removeStack = useRemoveStack(endpointId);
 
   const [deployOpen, setDeployOpen] = useState(false);
   const [stackName, setStackName] = useState('');

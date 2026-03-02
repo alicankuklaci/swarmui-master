@@ -1,3 +1,4 @@
+import { useAppStore } from '@/stores/app.store';
 import { Link, useParams } from 'react-router-dom';
 import { useService, useServiceTasks } from '@/hooks/useDocker';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -6,7 +7,7 @@ import { StatusBadge } from '@/components/docker/StatusBadge';
 import { LogViewer } from '@/components/docker/LogViewer';
 import { ArrowLeftIcon } from 'lucide-react';
 
-const ENDPOINT_ID = 'local';
+
 
 function formatTimestamp(ts: string | undefined): string {
   if (!ts) return '—';
@@ -18,11 +19,12 @@ function formatTimestamp(ts: string | undefined): string {
 }
 
 export function ServiceDetailPage() {
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
   const { id } = useParams<{ id: string }>();
   const serviceId = id ?? '';
 
-  const { data: service, isLoading: serviceLoading } = useService(ENDPOINT_ID, serviceId);
-  const { data: tasks, isLoading: tasksLoading } = useServiceTasks(ENDPOINT_ID, serviceId);
+  const { data: service, isLoading: serviceLoading } = useService(endpointId, serviceId);
+  const { data: tasks, isLoading: tasksLoading } = useServiceTasks(endpointId, serviceId);
 
   const serviceName = service?.Spec?.Name ?? serviceId;
 
@@ -134,7 +136,7 @@ export function ServiceDetailPage() {
 
         {/* Logs Tab */}
         <TabsContent value="logs" className="mt-4">
-          <LogViewer endpointId={ENDPOINT_ID} containerId={serviceId} />
+          <LogViewer endpointId={endpointId} containerId={serviceId} />
         </TabsContent>
       </Tabs>
     </div>

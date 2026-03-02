@@ -1,11 +1,13 @@
+import { useAppStore } from '@/stores/app.store';
 import { useSwarmInfo, useNodes } from '@/hooks/useDocker';
 import { SwarmTopology } from '@/components/docker/SwarmTopology';
 
-const ENDPOINT_ID = 'local';
+
 
 export function SwarmPage() {
-  const { data: swarmInfo, isLoading: swarmLoading } = useSwarmInfo(ENDPOINT_ID);
-  const { data: nodes, isLoading: nodesLoading } = useNodes(ENDPOINT_ID);
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
+  const { data: swarmInfo, isLoading: swarmLoading } = useSwarmInfo(endpointId);
+  const { data: nodes, isLoading: nodesLoading } = useNodes(endpointId);
 
   const isLoading = swarmLoading || nodesLoading;
 
