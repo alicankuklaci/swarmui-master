@@ -3,9 +3,25 @@ import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { useAppStore } from '@/stores/app.store';
 import { cn } from '@/lib/utils';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 
 export function AppShell() {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen);
+  const selectedEndpointId = useAppStore((s) => s.selectedEndpointId);
+  const setSelectedEndpoint = useAppStore((s) => s.setSelectedEndpoint);
+
+  const { data: endpoints } = useQuery({
+    queryKey: ['endpoints-auto'],
+    queryFn: () => api.get('/endpoints', { params: { limit: 1 } }).then((r) => r.data),
+  });
+
+  useEffect(() => {
+    if (!selectedEndpointId && endpoints?.data?.data?.length > 0) {
+      setSelectedEndpoint(endpoints.data.data[0]._id);
+    }
+  }, [endpoints, selectedEndpointId, setSelectedEndpoint]);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
