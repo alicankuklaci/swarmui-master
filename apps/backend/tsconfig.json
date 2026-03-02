@@ -8,7 +8,7 @@
     "rootDir": "./src",
     "baseUrl": ".",
     "paths": {
-      "@swarmui/shared-types": ["../../packages/shared-types/src"]
+      "@swarmui-master/shared-types": ["../../packages/shared-types/src"]
     },
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,

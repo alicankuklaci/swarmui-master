@@ -34,7 +34,7 @@ export class EmailNotificationService {
   }): Promise<void> {
     try {
       const transporter = this.getTransporter(opts.smtpConfig);
-      const from = this.config.get('SMTP_FROM', 'SwarmUI <noreply@swarmui.local>');
+      const from = this.config.get('SMTP_FROM', 'SwarmUI-Master <noreply@swarmui-master.local>');
       await transporter.sendMail({
         from,
         to: Array.isArray(opts.to) ? opts.to.join(', ') : opts.to,
@@ -53,7 +53,7 @@ export class EmailNotificationService {
     try {
       await this.sendEmail({
         to: testEmail,
-        subject: 'SwarmUI SMTP Test',
+        subject: 'SwarmUI-Master SMTP Test',
         text: 'SMTP configuration is working correctly.',
         smtpConfig,
       });

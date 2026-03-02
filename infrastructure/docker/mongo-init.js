@@ -1,6 +1,6 @@
-db = db.getSiblingDB('swarmui');
+db = db.getSiblingDB('swarmui-master');
 db.createUser({
-  user: 'swarmui',
-  pwd: 'swarmui_password',
-  roles: [{ role: 'readWrite', db: 'swarmui' }],
+  user: 'swarmui-master',
+  pwd: 'swarmui-master_password',
+  roles: [{ role: 'readWrite', db: 'swarmui-master' }],
 });

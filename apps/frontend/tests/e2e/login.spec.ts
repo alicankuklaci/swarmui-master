@@ -8,5 +8,5 @@ test('login to dashboard', async ({ page }) => {
   await page.click('button[type="submit"]');
 
   await expect(page).toHaveURL('/dashboard');
-  await expect(page.locator('text=SwarmUI')).toBeVisible();
+  await expect(page.locator('text=SwarmUI-Master')).toBeVisible();
 });

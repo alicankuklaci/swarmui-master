@@ -51,8 +51,8 @@ async function bootstrap() {
 
   // Swagger
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('SwarmUI API')
-    .setDescription('SwarmUI - Docker Swarm Management Platform API')
+    .setTitle('SwarmUI-Master API')
+    .setDescription('SwarmUI-Master - Docker Swarm Management Platform API')
     .setVersion('1.0')
     .addBearerAuth()
     .addCookieAuth('refresh_token')
@@ -61,7 +61,7 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   await app.listen(port);
-  console.log(`SwarmUI Backend running on port ${port}`);
+  console.log(`SwarmUI-Master Backend running on port ${port}`);
   console.log(`Swagger docs: http://localhost:${port}/api/docs`);
 }
 bootstrap();

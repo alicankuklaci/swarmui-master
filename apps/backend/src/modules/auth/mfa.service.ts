@@ -16,7 +16,7 @@ export class MfaService {
     if (!user) throw new BadRequestException('User not found');
 
     const secret = speakeasy.generateSecret({
-      name: `SwarmUI (${user.email})`,
+      name: `SwarmUI-Master (${user.email})`,
       length: 32,
     });
 
