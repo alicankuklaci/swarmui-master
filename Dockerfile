@@ -22,6 +22,8 @@ RUN pnpm build
 FROM node:20-alpine AS backend
 WORKDIR /app
 RUN npm install -g pnpm@9.0.0
+RUN apk add --no-cache curl \
+    && curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/apps/backend/package.json ./apps/backend/
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
