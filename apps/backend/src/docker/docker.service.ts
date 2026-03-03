@@ -62,7 +62,7 @@ export class DockerService {
       return new Dockerode({
         host: parsed.hostname,
         port: parseInt(parsed.port) || 2375,
-        protocol: parsed.protocol.replace(':','') || 'http',
+        protocol: parsed.protocol === 'https:' ? 'https' : 'http',
         headers,
       });
     }
