@@ -26,6 +26,9 @@ export class Endpoint {
   swarmEnabled: boolean;
 
   @Prop()
+  agentToken?: string;
+
+  @Prop()
   groupId?: string;
 
   @Prop({ type: [String], default: [] })

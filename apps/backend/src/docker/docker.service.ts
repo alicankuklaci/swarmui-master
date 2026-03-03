@@ -1,4 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Endpoint, EndpointDocument } from '../modules/endpoints/schemas/endpoint.schema';
 import { ConfigService } from '@nestjs/config';
 import Dockerode from 'dockerode';
 
@@ -9,14 +12,25 @@ export class DockerService {
   private readonly logger = new Logger(DockerService.name);
   private readonly connections = new Map<string, Dockerode>();
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @InjectModel(Endpoint.name) private readonly endpointModel: Model<EndpointDocument>,
+  ) {}
 
-  async getConnection(endpointId: string, url?: string, type?: EndpointType): Promise<Dockerode> {
+  async getConnection(endpointId: string, url?: string, type?: EndpointType, token?: string): Promise<Dockerode> {
     if (this.connections.has(endpointId)) {
       return this.connections.get(endpointId)!;
     }
 
-    const docker = await this.createConnection(url || this.config.get('DOCKER_SOCKET', '/var/run/docker.sock'), type);
+    if (!url || !type) {
+      const endpoint = await this.endpointModel.findById(endpointId).lean();
+      if (endpoint) {
+        url = endpoint.url;
+        type = endpoint.type as any;
+        token = endpoint.agentToken;
+      }
+    }
+    const docker = await this.createConnection(url || this.config.get('DOCKER_SOCKET', '/var/run/docker.sock'), type, token);
     this.connections.set(endpointId, docker);
     return docker;
   }
@@ -36,7 +50,7 @@ export class DockerService {
     this.logger.log(`Removed Docker connection for endpoint ${endpointId}`);
   }
 
-  private async createConnection(url: string, type?: EndpointType): Promise<Dockerode> {
+  private async createConnection(url: string, type?: EndpointType, token?: string): Promise<Dockerode> {
     if (!type || type === 'local') {
       const socketPath = url.replace('unix://', '');
       return new Dockerode({ socketPath });
@@ -44,10 +58,12 @@ export class DockerService {
 
     if (type === 'tcp' || type === 'agent') {
       const parsed = new URL(url);
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
       return new Dockerode({
         host: parsed.hostname,
         port: parseInt(parsed.port) || 2375,
-        protocol: 'http',
+        protocol: parsed.protocol.replace(':','') || 'http',
+        headers,
       });
     }
 
