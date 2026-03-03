@@ -59,8 +59,12 @@ export class DockerService {
     if (type === 'tcp' || type === 'agent') {
       const parsed = new URL(url);
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      let host = parsed.hostname;
+      if (host === '127.0.0.1' || host === 'localhost') {
+        host = 'swarmui-agent_swarmui-agent';
+      }
       return new Dockerode({
-        host: parsed.hostname,
+        host,
         port: parseInt(parsed.port) || 2375,
         protocol: parsed.protocol === 'https:' ? 'https' : 'http',
         headers,
