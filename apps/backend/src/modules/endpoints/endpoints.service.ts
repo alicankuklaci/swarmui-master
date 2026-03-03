@@ -66,7 +66,7 @@ export class EndpointsService {
     if (!endpoint) throw new NotFoundException('Endpoint not found');
 
     try {
-      const docker = await this.dockerService.getConnection(id, endpoint.url, endpoint.type as any);
+      const docker = await this.dockerService.getConnection(id, endpoint.url, endpoint.type as any, endpoint.agentToken);
       const info = await docker.info();
       const swarmEnabled = info.Swarm?.LocalNodeState === 'active';
       const dockerVersion = info.ServerVersion;

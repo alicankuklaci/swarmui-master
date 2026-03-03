@@ -56,9 +56,10 @@ export function EndpointsPage() {
     },
   });
 
-  const { register, handleSubmit, control, reset } = useForm({
-    defaultValues: { name: '', type: 'local', url: 'unix:///var/run/docker.sock' },
+  const { register, handleSubmit, control, reset, watch } = useForm({
+    defaultValues: { name: '', type: 'local', url: 'unix:///var/run/docker.sock', agentToken: '' },
   });
+  const selectedType = watch('type');
 
   return (
     <div className="space-y-6">
@@ -166,10 +167,16 @@ export function EndpointsPage() {
                 )}
               />
             </div>
-            <div className="space-y-2">
+                        <div className="space-y-2">
               <Label>URL</Label>
               <Input {...register('url', { required: true })} placeholder="unix:///var/run/docker.sock" />
             </div>
+            {selectedType === 'agent' && (
+              <div className="space-y-2">
+                <Label>Agent Token</Label>
+                <Input {...register('agentToken')} placeholder="Bearer token" type="password" />
+              </div>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={createMutation.isPending}>Add Endpoint</Button>

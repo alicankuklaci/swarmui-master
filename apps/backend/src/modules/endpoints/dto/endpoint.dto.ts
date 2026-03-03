@@ -25,6 +25,11 @@ export class CreateEndpointDto {
   @IsArray()
   @IsOptional()
   tags?: string[];
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  agentToken?: string;
 }
 
 export class UpdateEndpointDto {
@@ -47,4 +52,9 @@ export class UpdateEndpointDto {
   @IsArray()
   @IsOptional()
   tags?: string[];
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  agentToken?: string;
 }
