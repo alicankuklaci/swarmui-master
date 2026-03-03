@@ -4,7 +4,7 @@ import { Model } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as archiver from 'archiver';
+import archiver from 'archiver';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { BackupJob, BackupJobDocument } from './schemas/backup-job.schema';
@@ -98,7 +98,7 @@ export class BackupService {
   private async createZipBackup(outputPath: string, includeDatabase: boolean, includeConfigs: boolean): Promise<void> {
     return new Promise(async (resolve, reject) => {
       const output = fs.createWriteStream(outputPath);
-      const archive = (archiver as any)('zip', { zlib: { level: 9 } });
+      const archive = archiver('zip', { zlib: { level: 9 } });
 
       output.on('close', () => resolve());
       archive.on('error', (err: any) => reject(err));
