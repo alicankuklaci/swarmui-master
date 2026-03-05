@@ -90,7 +90,14 @@ export function NodesPage() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">{shortId}</td>
                   <td className="px-4 py-3 capitalize">{role}</td>
-                  <td className="px-4 py-3 capitalize">{availability}</td>
+                  <td className="px-4 py-3">
+                    <Badge
+                      variant={availability === 'active' ? 'default' : availability === 'drain' ? 'warning' : 'secondary'}
+                      className="capitalize"
+                    >
+                      {availability}
+                    </Badge>
+                  </td>
                   <td className="px-4 py-3">
                     <Badge
                       variant={status === 'ready' ? 'default' : 'destructive'}
@@ -123,6 +130,16 @@ export function NodesPage() {
                           disabled={updateNode.isPending}
                         >
                           Set Active
+                        </Button>
+                      )}
+                      {availability !== 'pause' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSetAvailability(node.ID, 'pause')}
+                          disabled={updateNode.isPending}
+                        >
+                          Set Pause
                         </Button>
                       )}
                       <Button

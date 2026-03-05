@@ -4,6 +4,7 @@ import {
   Activity, ChevronLeft, ChevronRight, Container, Network,
   HardDrive, Image, Layers, GitBranch, Grid3X3,
   LayoutGrid, Package, GitMerge, HardDriveDownload, Lock, KeyRound, Bell,
+  Radio,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/app.store';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,7 @@ const navSections = [
       { to: '/images', icon: Image, label: 'Images' },
       { to: '/networks', icon: Network, label: 'Networks' },
       { to: '/volumes', icon: HardDrive, label: 'Volumes' },
+      { to: '/events', icon: Radio, label: 'Events' },
     ],
   },
   {

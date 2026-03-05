@@ -9,7 +9,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @ApiTags('Activity Logs')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RbacGuard)
-@Controller({ path: 'activity-logs', version: '1' })
+@Controller({ path: 'logs/activity', version: '1' })
 export class ActivityLogsController {
   constructor(private readonly activityLogsService: ActivityLogsService) {}
 

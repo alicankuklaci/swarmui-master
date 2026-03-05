@@ -3,6 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { io, Socket } from 'socket.io-client';
+import { useAuthStore } from '@/stores/auth.store';
 import '@xterm/xterm/css/xterm.css';
 import { cn } from '@/lib/utils';
 
@@ -11,9 +12,10 @@ interface ContainerConsoleProps {
   containerId: string;
   cmd?: string[];
   className?: string;
+  agentUrl?: string;
 }
 
-export function ContainerConsole({ endpointId, containerId, cmd, className }: ContainerConsoleProps) {
+export function ContainerConsole({ endpointId, containerId, cmd, className, agentUrl }: ContainerConsoleProps) {
   const termRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -46,9 +48,13 @@ export function ContainerConsole({ endpointId, containerId, cmd, className }: Co
     fitAddonRef.current = fitAddon;
 
     // Connect WebSocket
-    const socket = io('/docker', {
+    // For remote swarm nodes, connect to agent's WebSocket proxy
+    const socketUrl = agentUrl || '';
+    const socketPath = agentUrl ? '/socket.io' : '/socket.io';
+    const socket = io(agentUrl ? agentUrl : '/docker', {
       path: '/socket.io',
       transports: ['websocket'],
+      auth: { token: useAuthStore.getState().accessToken || '' },
     });
     socketRef.current = socket;
 
@@ -57,6 +63,7 @@ export function ContainerConsole({ endpointId, containerId, cmd, className }: Co
         containerId,
         cmd: cmd || ['/bin/sh'],
         endpointId,
+        agentUrl: agentUrl || undefined,
       });
     });
 

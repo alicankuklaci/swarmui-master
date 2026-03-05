@@ -9,6 +9,8 @@ import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { AuthLogsService } from '../auth-logs/auth-logs.service';
+
 
 @ApiTags('Auth')
 @Controller({ path: 'auth', version: '1' })
@@ -16,6 +18,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly mfaService: MfaService,
+    private readonly authLogsService: AuthLogsService,
   ) {}
 
   @Public()
@@ -27,7 +30,19 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    return this.authService.login(req.user, res);
+    const result = await this.authService.login(req.user, res);
+    // Log successful login
+    this.authLogsService
+      .log({
+        event: 'login_success' as const,
+        userId: (req.user as any)?.id || (req.user as any)?._id?.toString(),
+        username: (req.user as any)?.username,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        success: true,
+      })
+      .catch(() => {});
+    return result;
   }
 
   @Public()
@@ -46,7 +61,19 @@ export class AuthController {
   @ApiOperation({ summary: 'Logout current session' })
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const refreshToken = req.cookies['refresh_token'];
-    return this.authService.logout(refreshToken, res);
+    const result = await this.authService.logout(refreshToken, res);
+    const user = (req as any).user;
+    this.authLogsService
+      .log({
+        event: 'logout' as const,
+        userId: user?.id,
+        username: user?.username,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        success: true,
+      })
+      .catch(() => {});
+    return result;
   }
 
   @Post('logout-all')

@@ -71,4 +71,22 @@ export class NetworksService {
     const docker = this.getDocker(endpointId);
     return docker.pruneNetworks();
   }
+
+  async getContainers(id: string, endpointId?: string) {
+    const docker = this.getDocker(endpointId);
+    const network = docker.getNetwork(id);
+    try {
+      const info = await network.inspect();
+      const containers = info.Containers || {};
+      return Object.entries(containers).map(([cId, c]: [string, any]) => ({
+        id: cId,
+        name: c.Name || '',
+        ipv4: c.IPv4Address || '',
+        mac: c.MacAddress || '',
+        ipv6: c.IPv6Address || '',
+      }));
+    } catch (err: any) {
+      throw new NotFoundException(`Network ${id} not found`);
+    }
+  }
 }

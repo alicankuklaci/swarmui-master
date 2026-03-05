@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Param, Body,
+  Controller, Get, Post, Put, Delete, Param, Body,
   UseGuards, HttpCode, HttpStatus, Res,
 } from '@nestjs/common';
 import { Response } from 'express';
@@ -24,6 +24,15 @@ export class StacksController {
     return this.stacksService.deploy(body.name, body.composeContent, endpointId);
   }
 
+  @Put(':name')
+  update(
+    @Param('endpointId') endpointId: string,
+    @Param('name') name: string,
+    @Body() body: { composeContent: string },
+  ) {
+    return this.stacksService.update(name, body.composeContent, endpointId);
+  }
+
   @Get(':name')
   inspect(@Param('endpointId') endpointId: string, @Param('name') name: string) {
     return this.stacksService.inspect(name, endpointId);
@@ -40,12 +49,12 @@ export class StacksController {
   }
 
   @Get(':name/compose')
-  getCompose(
+  async getCompose(
     @Param('endpointId') endpointId: string,
     @Param('name') name: string,
     @Res() res: Response,
   ) {
-    const content = this.stacksService.getComposeFile(name);
+    const content = await this.stacksService.getComposeFile(name);
     res.setHeader('Content-Type', 'text/plain');
     res.send(content);
   }

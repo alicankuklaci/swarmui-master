@@ -1,7 +1,7 @@
 {
   "name": "swarmui-agent",
-  "version": "1.0.0",
-  "description": "SwarmUI Agent (Portainer-style) - secure Docker API proxy",
+  "version": "2.0.0",
+  "description": "SwarmUI Agent - Docker API proxy with TTY WebSocket support",
   "main": "src/index.js",
   "license": "MIT",
   "type": "commonjs",
@@ -9,6 +9,8 @@
     "http-proxy": "^1.18.1",
     "express": "^4.19.2",
     "helmet": "^7.1.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "socket.io": "^4.7.4",
+    "dockerode": "^4.0.2"
   }
 }

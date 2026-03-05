@@ -1,8 +1,10 @@
 import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
-import { Plus, Trash2, Loader2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Plus, Trash2, Loader2, FolderOpen, File, Folder, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { api } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -21,8 +23,15 @@ export function VolumesPage() {
   const [volumeDriver, setVolumeDriver] = useState('local');
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [browseVolume, setBrowseVolume] = useState<string | null>(null);
+  const [browsePath, setBrowsePath] = useState('/');
 
   const { data: volumesData, isLoading } = useVolumes(endpointId);
+  const { data: browseFiles, isLoading: browseLoading } = useQuery({
+    queryKey: ['volume-browse', endpointId, browseVolume, browsePath],
+    queryFn: () => api.get(`/endpoints/${endpointId}/volumes/${browseVolume}/browse`, { params: { path: browsePath } }).then((r) => r.data?.data ?? r.data ?? []),
+    enabled: !!endpointId && !!browseVolume,
+  });
   const createMutation = useCreateVolume(endpointId);
   const removeMutation = useRemoveVolume(endpointId);
 
@@ -117,15 +126,25 @@ export function VolumesPage() {
                     </td>
                     <td className="p-3 text-muted-foreground">{volume.Scope || '-'}</td>
                     <td className="p-3">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Remove"
-                        onClick={() => handleRemove(volume.Name)}
-                        disabled={removeMutation.isPending}
-                      >
-                        <Trash2 className="w-4 h-4 text-destructive" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Browse"
+                          onClick={() => { setBrowseVolume(volume.Name); setBrowsePath('/'); }}
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Remove"
+                          onClick={() => handleRemove(volume.Name)}
+                          disabled={removeMutation.isPending}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -134,6 +153,61 @@ export function VolumesPage() {
           </table>
         </div>
       </div>
+
+      {/* Browse Volume Dialog */}
+      <Dialog open={!!browseVolume} onOpenChange={(open) => { if (!open) setBrowseVolume(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Browse: {browseVolume}</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-2 mb-2">
+            <Button
+              variant="outline" size="sm"
+              disabled={browsePath === '/'}
+              onClick={() => {
+                const parts = browsePath.split('/').filter(Boolean);
+                parts.pop();
+                setBrowsePath('/' + parts.join('/'));
+              }}
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" /> Up
+            </Button>
+            <span className="text-sm font-mono text-muted-foreground">{browsePath}</span>
+          </div>
+          <div className="max-h-80 overflow-y-auto border rounded">
+            {browseLoading ? (
+              <p className="p-4 text-center text-muted-foreground">Loading...</p>
+            ) : !browseFiles || browseFiles.length === 0 ? (
+              <p className="p-4 text-center text-muted-foreground">Empty directory</p>
+            ) : (
+              <table className="w-full text-sm">
+                <tbody>
+                  {browseFiles.map((f: any) => (
+                    <tr
+                      key={f.name}
+                      className="border-b hover:bg-muted/30 cursor-pointer"
+                      onClick={() => {
+                        if (f.type === 'dir') {
+                          setBrowsePath(browsePath === '/' ? `/${f.name}` : `${browsePath}/${f.name}`);
+                        }
+                      }}
+                    >
+                      <td className="p-2">
+                        {f.type === 'dir' ? <Folder className="w-4 h-4 text-blue-500 inline mr-2" /> : <File className="w-4 h-4 text-gray-400 inline mr-2" />}
+                        <span className="font-mono text-xs">{f.name}</span>
+                      </td>
+                      <td className="p-2 text-right text-muted-foreground text-xs">
+                        {f.type === 'file' ? `${f.size} B` : ''}
+                      </td>
+                      <td className="p-2 text-right text-muted-foreground text-xs">{f.date}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Volume Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Download, Trash2, PauseCircle, PlayCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import Convert from 'ansi-to-html';
+
+const ansiConvert = new Convert({ escapeXML: true, newline: true });
 import { useAuthStore } from '@/stores/auth.store';
 
 interface LogEntry {
@@ -121,9 +124,8 @@ export function LogViewer({ endpointId, containerId, tail = 200, className, reso
           <div
             key={i}
             className={cn('whitespace-pre-wrap break-all', log.type === 'stderr' && 'text-red-400')}
-          >
-            {log.text}
-          </div>
+            dangerouslySetInnerHTML={{ __html: (() => { try { return ansiConvert.toHtml(log.text ?? ''); } catch { return log.text ?? ''; } })() }}
+          />
         ))}
         <div ref={bottomRef} />
       </div>

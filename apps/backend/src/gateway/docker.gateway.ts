@@ -48,8 +48,29 @@ export class DockerGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('exec:start')
   async handleExecStart(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { containerId: string; cmd?: string[]; endpointId?: string },
+    @MessageBody() data: { containerId: string; cmd?: string[]; endpointId?: string; agentUrl?: string },
   ) {
+    // If agentUrl provided, proxy to remote agent via socket.io
+    if (data.agentUrl) {
+      const { io } = await import('socket.io-client');
+      const remoteSocket = io(`${data.agentUrl}/docker`, {
+        auth: { token: process.env.AGENT_TOKEN || 'supersecret' },
+        transports: ['websocket'],
+      });
+      remoteSocket.on('connect', () => {
+        remoteSocket.emit('exec:start', { containerId: data.containerId, cmd: data.cmd });
+      });
+      remoteSocket.on('exec:ready', () => client.emit('exec:ready'));
+      remoteSocket.on('exec:data', (d: any) => client.emit('exec:data', d));
+      remoteSocket.on('exec:end', () => { client.emit('exec:end'); remoteSocket.disconnect(); });
+      remoteSocket.on('exec:error', (e: any) => { client.emit('exec:error', e); remoteSocket.disconnect(); });
+      remoteSocket.on('connect_error', (e: any) => client.emit('exec:error', e.message));
+      client.on('exec:input', (d: string) => remoteSocket.emit('exec:input', d));
+      client.on('exec:resize', (d: any) => remoteSocket.emit('exec:resize', d));
+      client.on('disconnect', () => remoteSocket.disconnect());
+      return;
+    }
+
     const docker = this.dockerService.getLocalConnection();
     const container = docker.getContainer(data.containerId);
 

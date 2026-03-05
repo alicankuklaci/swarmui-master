@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/app.store';
+import { api } from '@/lib/api';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStacks, useDeployStack, useRemoveStack } from '@/hooks/useDocker';
@@ -41,6 +42,12 @@ export function StacksPage() {
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editContent, setEditContent] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState('');
+
   async function handleDeploy() {
     setDeployError('');
     if (!stackName.trim()) {
@@ -74,6 +81,37 @@ export function StacksPage() {
     } finally {
       setRemoving(false);
       setRemoveTarget(null);
+    }
+  }
+
+  async function handleEditOpen(name: string) {
+    setEditName(name);
+    setEditContent('');
+    setEditError('');
+    setEditOpen(true);
+    // Try to fetch existing compose
+    try {
+      const res = await api.get(`/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(name)}/compose`, {
+        responseType: 'text',
+        transformResponse: [(d: string) => d],
+      });
+      setEditContent(res.data as string);
+    } catch {
+      // No existing compose, start empty
+    }
+  }
+
+  async function handleEdit() {
+    setEditError('');
+    if (!editContent.trim()) { setEditError('Compose content is required.'); return; }
+    setEditing(true);
+    try {
+      await api.put(`/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(editName)}`, { composeContent: editContent });
+      setEditOpen(false);
+    } catch (err: any) {
+      setEditError(err?.response?.data?.message || err?.message || 'Update failed.');
+    } finally {
+      setEditing(false);
     }
   }
 
@@ -180,6 +218,14 @@ export function StacksPage() {
                   <td className="px-4 py-3">{servicesCount}</td>
                   <td className="px-4 py-3">{tasksCount}</td>
                   <td className="px-4 py-3">
+                    <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleEditOpen(name)}
+                    >
+                      Edit
+                    </Button>
                     <Button
                       size="sm"
                       variant="destructive"
@@ -187,6 +233,7 @@ export function StacksPage() {
                     >
                       Remove
                     </Button>
+                  </div>
                   </td>
                 </tr>
               );
@@ -212,6 +259,32 @@ export function StacksPage() {
             </Button>
             <Button variant="destructive" onClick={handleRemove} disabled={removing}>
               {removing ? 'Removing...' : 'Remove'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    {/* Edit Stack Dialog */}
+      <Dialog open={editOpen} onOpenChange={(open) => { setEditOpen(open); if (!open) setEditError(''); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Stack: {editName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Compose File (YAML)</label>
+              <textarea
+                className="w-full h-64 rounded-md border bg-muted/30 px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                spellCheck={false}
+              />
+            </div>
+            {editError && <p className="text-sm text-destructive">{editError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editing}>Cancel</Button>
+            <Button onClick={handleEdit} disabled={editing}>
+              {editing ? 'Updating...' : 'Update Stack'}
             </Button>
           </DialogFooter>
         </DialogContent>

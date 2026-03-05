@@ -1,8 +1,9 @@
 import { useAppStore } from '@/stores/app.store';
-import { useState } from 'react';
-import { Trash2, Download, Loader2, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Trash2, Download, Loader2, AlertTriangle, ArrowUpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,23 @@ export function ImagesPage() {
   const { data: images, isLoading } = useImages(endpointId);
   const removeMutation = useRemoveImage(endpointId);
   const pruneMutation = usePruneImages(endpointId);
+  const [updateStatus, setUpdateStatus] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    if (!images || images.length === 0 || !endpointId) return;
+    // Check first 10 images for updates
+    const toCheck = images.slice(0, 10);
+    toCheck.forEach((img: any) => {
+      const id = img.Id;
+      if (updateStatus[id]) return;
+      api.get(`/endpoints/${endpointId}/images/${encodeURIComponent(id)}/check-update`)
+        .then((res) => {
+          const data = res.data?.data ?? res.data;
+          setUpdateStatus((prev) => ({ ...prev, [id]: data }));
+        })
+        .catch(() => {});
+    });
+  }, [images, endpointId]);
 
   async function handlePull() {
     if (!imageName.trim()) return;
@@ -145,7 +163,14 @@ export function ImagesPage() {
                     const shortId = (image.Id || '').replace('sha256:', '').slice(0, 12);
                     return (
                       <tr key={`${image.Id}-${idx}`} className="border-b hover:bg-muted/30">
-                        <td className="p-3 font-mono text-xs">{repo}</td>
+                        <td className="p-3 font-mono text-xs">
+                          {repo}
+                          {updateStatus[image.Id]?.hasUpdate && (
+                            <Badge variant="warning" className="ml-2 text-xs" title={`Pull: docker pull ${repo}:${tagName}`}>
+                              <ArrowUpCircle className="w-3 h-3 mr-1" /> Update
+                            </Badge>
+                          )}
+                        </td>
                         <td className="p-3 text-muted-foreground font-mono text-xs">{tagName}</td>
                         <td className="p-3 text-muted-foreground font-mono text-xs">{shortId}</td>
                         <td className="p-3 text-muted-foreground">{formatSize(image.Size)}</td>
