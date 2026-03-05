@@ -2,13 +2,18 @@ version: '3.8'
 services:
   swarmui-agent:
     image: alicankuklaci/swarmui-agent:latest
-    ports:
-      - "9001:9001"
     environment:
       - AGENT_TOKEN=supersecret
       - AGENT_READONLY=false
       - DOCKER_SOCKET=/var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - target: 9001
+        published: 9001
+        protocol: tcp
+        mode: host          # Her node kendi portunu açar
     deploy:
-      replicas: 1
+      mode: global          # Her node'da 1 adet çalışır
+      restart_policy:
+        condition: on-failure

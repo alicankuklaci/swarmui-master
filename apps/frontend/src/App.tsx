@@ -20,6 +20,7 @@ import { NodesPage } from '@/pages/NodesPage';
 import { ServicesPage } from '@/pages/ServicesPage';
 import { ServiceDetailPage } from '@/pages/ServiceDetailPage';
 import { StacksPage } from '@/pages/StacksPage';
+import { StackDetailPage } from '@/pages/StackDetailPage';
 import { RegistriesPage } from '@/pages/RegistriesPage';
 import { TemplatesPage } from '@/pages/TemplatesPage';
 import { GitopsPage } from '@/pages/GitopsPage';
@@ -29,6 +30,7 @@ import { BackupPage } from '@/pages/BackupPage';
 import { SecurityPage } from '@/pages/SecurityPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { TwoFactorPage } from '@/pages/TwoFactorPage';
+import { EventsPage } from '@/pages/EventsPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
 import React from 'react';
@@ -80,12 +82,14 @@ export default function App() {
           <Route path="images" element={<ImagesPage />} />
           <Route path="networks" element={<NetworksPage />} />
           <Route path="volumes" element={<VolumesPage />} />
+          <Route path="events" element={<EventsPage />} />
           {/* Swarm */}
           <Route path="swarm" element={<SwarmPage />} />
           <Route path="nodes" element={<NodesPage />} />
           <Route path="services" element={<ServicesPage />} />
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="stacks" element={<StacksPage />} />
+          <Route path="stacks/:name" element={<StackDetailPage />} />
           {/* Platform */}
           <Route path="registries" element={<RegistriesPage />} />
           <Route path="templates" element={<ErrorBoundary><TemplatesPage /></ErrorBoundary>} />

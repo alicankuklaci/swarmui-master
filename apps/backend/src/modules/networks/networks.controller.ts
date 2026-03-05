@@ -53,6 +53,11 @@ export class NetworksController {
     return this.networksService.disconnect(id, body.containerId, body.force, endpointId);
   }
 
+  @Get(':id/containers')
+  getContainers(@Param('endpointId') endpointId: string, @Param('id') id: string) {
+    return this.networksService.getContainers(id, endpointId);
+  }
+
   @Delete()
   prune(@Param('endpointId') endpointId: string) {
     return this.networksService.prune(endpointId);

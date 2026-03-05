@@ -31,6 +31,11 @@ export class ImagesController {
     return this.imagesService.history(id, endpointId);
   }
 
+  @Get(':id/check-update')
+  checkUpdate(@Param('endpointId') endpointId: string, @Param('id') id: string) {
+    return this.imagesService.checkUpdate(id, endpointId);
+  }
+
   @Sse('pull')
   pull(
     @Param('endpointId') endpointId: string,

@@ -47,6 +47,15 @@ export class ServicesController {
     return this.servicesService.forceUpdate(id, endpointId);
   }
 
+  @Patch(':id/update-policy')
+  updatePolicy(
+    @Param('endpointId') endpointId: string,
+    @Param('id') id: string,
+    @Body() body: { parallelism?: number; delay?: number; failureAction?: string; order?: string },
+  ) {
+    return this.servicesService.updatePolicy(id, body.parallelism, body.delay, body.failureAction, body.order, endpointId);
+  }
+
   @Post(':id/rollback')
   @HttpCode(HttpStatus.OK)
   rollback(@Param('endpointId') endpointId: string, @Param('id') id: string) {

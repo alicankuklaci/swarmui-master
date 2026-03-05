@@ -28,7 +28,9 @@ export class NotificationsService {
   }
 
   async findForUser(userId: string, page = 1, limit = 50) {
-    const skip = (page - 1) * limit;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Number(limit) || 50);
+    const skip = (safePage - 1) * safeLimit;
     const query = {
       $or: [
         { userId: new Types.ObjectId(userId) },
@@ -36,11 +38,11 @@ export class NotificationsService {
       ],
     };
     const [data, total, unread] = await Promise.all([
-      this.notificationModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      this.notificationModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(safeLimit).lean(),
       this.notificationModel.countDocuments(query),
       this.notificationModel.countDocuments({ ...query, read: false }),
     ]);
-    return { data, total, unread, page, limit };
+    return { data, total, unread, page: safePage, limit: safeLimit };
   }
 
   async markRead(id: string, userId: string) {

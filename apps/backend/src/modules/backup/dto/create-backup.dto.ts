@@ -2,9 +2,10 @@ import { IsString, IsOptional, IsBoolean, IsEnum } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateBackupDto {
-  @ApiProperty()
+  @ApiProperty({ required: false })
   @IsString()
-  name: string;
+  @IsOptional()
+  name?: string;
 
   @ApiProperty({ required: false })
   @IsBoolean()

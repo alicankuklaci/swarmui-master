@@ -21,7 +21,7 @@ const eventVariant: Record<string, any> = {
 };
 
 export function AuthLogsPage() {
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState('all');
   const [eventFilter, setEventFilter] = useState('');
 
   const { data, isLoading } = useQuery({
@@ -30,7 +30,7 @@ export function AuthLogsPage() {
       const res = await api.get('/logs/auth', {
         params: { limit: 100, username: search || undefined, event: eventFilter || undefined },
       });
-      return res.data?.data ?? res.data;
+      return res.data?.data?.data ?? res.data?.data ?? res.data;
     },
   });
 
@@ -50,10 +50,21 @@ export function AuthLogsPage() {
           <h1 className="text-2xl font-bold">Auth Logs</h1>
           <p className="text-muted-foreground">Authentication and login event history</p>
         </div>
-        <Button variant="outline" onClick={handleExport}>
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+          <Button variant="outline" onClick={() => {
+            const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'auth-logs.json'; a.click();
+            URL.revokeObjectURL(url);
+          }}>
+            <Download className="w-4 h-4 mr-2" />
+            Export JSON
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -73,7 +84,7 @@ export function AuthLogsPage() {
                 <SelectValue placeholder="All events" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All events</SelectItem>
+                <SelectItem value="all">All events</SelectItem>
                 <SelectItem value="login_success">Login Success</SelectItem>
                 <SelectItem value="login_fail">Login Failed</SelectItem>
                 <SelectItem value="logout">Logout</SelectItem>

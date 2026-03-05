@@ -1,11 +1,17 @@
 import { useAppStore } from '@/stores/app.store';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import { useService, useServiceTasks } from '@/hooks/useDocker';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { StatusBadge } from '@/components/docker/StatusBadge';
 import { LogViewer } from '@/components/docker/LogViewer';
-import { ArrowLeftIcon } from 'lucide-react';
+import { ArrowLeftIcon, RotateCw } from 'lucide-react';
 
 
 
@@ -69,6 +75,7 @@ export function ServiceDetailPage() {
         <TabsList>
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
+          <TabsTrigger value="update-policy">Update Policy</TabsTrigger>
         </TabsList>
 
         {/* Tasks Tab */}
@@ -136,9 +143,86 @@ export function ServiceDetailPage() {
 
         {/* Logs Tab */}
         <TabsContent value="logs" className="mt-4">
-          <LogViewer endpointId={endpointId} containerId={serviceId} />
+          <LogViewer endpointId={endpointId} containerId={serviceId} resourceType="service" />
+        </TabsContent>
+
+        {/* Update Policy Tab */}
+        <TabsContent value="update-policy" className="mt-4">
+          <UpdatePolicyForm endpointId={endpointId} serviceId={serviceId} service={service} />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function UpdatePolicyForm({ endpointId, serviceId, service }: { endpointId: string; serviceId: string; service: any }) {
+  const qc = useQueryClient();
+  const updateConfig = service?.Spec?.UpdateConfig || {};
+  const [parallelism, setParallelism] = useState(String(updateConfig.Parallelism ?? 1));
+  const [delay, setDelay] = useState(String((updateConfig.Delay ?? 0) / 1000000000));
+  const [failureAction, setFailureAction] = useState(updateConfig.FailureAction || 'pause');
+  const [order, setOrder] = useState(updateConfig.Order || 'stop-first');
+  const [msg, setMsg] = useState('');
+
+  const policyMutation = useMutation({
+    mutationFn: (body: any) => api.patch(`/endpoints/${endpointId}/swarm/services/${serviceId}/update-policy`, body),
+    onSuccess: () => {
+      setMsg('Update policy saved');
+      qc.invalidateQueries({ queryKey: ['service', endpointId, serviceId] });
+    },
+    onError: (e: any) => setMsg('Error: ' + (e.response?.data?.message || e.message)),
+  });
+
+  const forceMutation = useMutation({
+    mutationFn: () => api.post(`/endpoints/${endpointId}/swarm/services/${serviceId}/force-update`),
+    onSuccess: () => {
+      setMsg('Force redeploy triggered');
+      qc.invalidateQueries({ queryKey: ['service', endpointId, serviceId] });
+    },
+    onError: (e: any) => setMsg('Error: ' + (e.response?.data?.message || e.message)),
+  });
+
+  return (
+    <div className="max-w-md space-y-4">
+      <div className="space-y-2">
+        <Label>Parallelism (simultaneous updates)</Label>
+        <Input type="number" value={parallelism} onChange={(e) => setParallelism(e.target.value)} min="0" />
+      </div>
+      <div className="space-y-2">
+        <Label>Update Delay (seconds)</Label>
+        <Input type="number" value={delay} onChange={(e) => setDelay(e.target.value)} min="0" />
+      </div>
+      <div className="space-y-2">
+        <Label>Failure Action</Label>
+        <Select value={failureAction} onValueChange={setFailureAction}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pause">Pause</SelectItem>
+            <SelectItem value="continue">Continue</SelectItem>
+            <SelectItem value="rollback">Rollback</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label>Update Order</Label>
+        <Select value={order} onValueChange={setOrder}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="stop-first">Stop First</SelectItem>
+            <SelectItem value="start-first">Start First</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {msg && <p className={`text-sm ${msg.startsWith('Error') ? 'text-destructive' : 'text-green-600'}`}>{msg}</p>}
+      <div className="flex gap-2">
+        <Button onClick={() => policyMutation.mutate({ parallelism: parseInt(parallelism), delay: parseInt(delay), failureAction, order })} disabled={policyMutation.isPending}>
+          {policyMutation.isPending ? 'Saving...' : 'Save Policy'}
+        </Button>
+        <Button variant="outline" onClick={() => forceMutation.mutate()} disabled={forceMutation.isPending}>
+          <RotateCw className="w-4 h-4 mr-2" />
+          Force Redeploy
+        </Button>
+      </div>
     </div>
   );
 }

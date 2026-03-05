@@ -1,10 +1,12 @@
 import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Square, RotateCw, Trash2, Search, Loader2 } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Play, Square, RotateCw, Trash2, Search, Loader2, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/docker/StatusBadge';
+import { api } from '@/lib/api';
 import { useContainers, useContainerAction, useRemoveContainer } from '@/hooks/useDocker';
 
 
@@ -36,6 +38,11 @@ export function ContainersPage() {
   const { data: containers, isLoading } = useContainers(endpointId, showAll);
   const actionMutation = useContainerAction(endpointId);
   const removeMutation = useRemoveContainer(endpointId);
+  const queryClient = useQueryClient();
+  const duplicateMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/endpoints/${endpointId}/containers/${id}/duplicate`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['containers', endpointId] }),
+  });
 
   const filtered = (containers || []).filter((c: any) => {
     const name = cleanName(c.Names || []);
@@ -190,6 +197,15 @@ export function ContainersPage() {
                               <RotateCw className="w-4 h-4 text-blue-600" />
                             </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Duplicate"
+                            onClick={() => { if (confirm(`Duplicate container "${name}"?`)) duplicateMutation.mutate(container.Id); }}
+                            disabled={duplicateMutation.isPending}
+                          >
+                            <Copy className="w-4 h-4 text-blue-600" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"

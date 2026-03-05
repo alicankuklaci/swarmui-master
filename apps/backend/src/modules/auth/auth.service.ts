@@ -48,8 +48,8 @@ export class AuthService {
     const maxAge = this.parseDuration(refreshExpires);
     res.cookie('refresh_token', refreshToken, {
       httpOnly: true,
-      secure: this.config.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
+      secure: false,
+      sameSite: 'lax',
       maxAge,
     });
 

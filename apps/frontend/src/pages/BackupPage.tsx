@@ -36,7 +36,8 @@ export function BackupPage() {
     queryKey: ['backups'],
     queryFn: async () => {
       const res = await api.get('/backup');
-      return res.data?.data ?? res.data;
+      const result = res.data?.data ?? res.data;
+      return Array.isArray(result) ? result : (result?.data ?? result ?? []);
     },
     refetchInterval: 5000,
   });

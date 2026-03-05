@@ -15,7 +15,7 @@ export class ServicesService {
 
   async list(endpointId?: string) {
     const docker = this.getDocker(endpointId);
-    return docker.listServices();
+    return (docker as any).listServices({ status: true }) as Promise<any[]>;
   }
 
   async inspect(id: string, endpointId?: string) {
@@ -71,6 +71,27 @@ export class ServicesService {
     const current = await service.inspect();
     // Trigger rollback by setting rollback config
     await service.update({ version: current.Version.Index, rollback: 'previous' } as any);
+    return service.inspect();
+  }
+
+  async updatePolicy(
+    id: string,
+    parallelism?: number,
+    delay?: number,
+    failureAction?: string,
+    order?: string,
+    endpointId?: string,
+  ) {
+    const docker = this.getDocker(endpointId);
+    const service = docker.getService(id);
+    const current = await service.inspect();
+    const spec = { ...current.Spec };
+    spec.UpdateConfig = spec.UpdateConfig || {};
+    if (parallelism !== undefined) spec.UpdateConfig.Parallelism = parallelism;
+    if (delay !== undefined) spec.UpdateConfig.Delay = delay * 1000000000; // seconds to nanoseconds
+    if (failureAction) spec.UpdateConfig.FailureAction = failureAction;
+    if (order) spec.UpdateConfig.Order = order;
+    await service.update({ version: current.Version.Index, ...spec });
     return service.inspect();
   }
 

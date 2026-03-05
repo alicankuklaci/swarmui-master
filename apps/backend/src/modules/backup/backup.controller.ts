@@ -39,6 +39,13 @@ export class BackupController {
     return this.backupService.createAndRun(dto, userId);
   }
 
+  @Post('create')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Create and run a backup (alias)' })
+  createAlias(@Body() dto: CreateBackupDto, @CurrentUser('id') userId: string) {
+    return this.backupService.createAndRun(dto, userId);
+  }
+
   @Get(':id/download')
   @Roles('admin')
   @ApiOperation({ summary: 'Download backup file' })

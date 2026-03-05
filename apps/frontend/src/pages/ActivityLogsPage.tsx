@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Activity } from 'lucide-react';
+import { Search, Activity, Download } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -23,15 +24,36 @@ export function ActivityLogsPage() {
     queryKey: ['activity-logs', search],
     queryFn: async () => {
       const res = await api.get('/activity-logs', { params: { limit: 100, action: search } });
-      return res.data.data;
+      const result = res.data?.data?.data ?? res.data?.data ?? res.data;
+      return Array.isArray(result) ? { data: result } : result;
     },
   });
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Activity Logs</h1>
-        <p className="text-muted-foreground">Audit trail of all user actions</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Activity Logs</h1>
+          <p className="text-muted-foreground">Audit trail of all user actions</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.open(`/api/v1/activity-logs?export=csv&limit=10000${search ? `&action=${search}` : ''}`, '_blank')}>
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+          <Button variant="outline" onClick={() => {
+            api.get('/activity-logs', { params: { limit: 10000, action: search || undefined } }).then((res) => {
+              const d = res.data?.data?.data ?? res.data?.data ?? res.data;
+              const blob = new Blob([JSON.stringify(Array.isArray(d) ? d : d?.data || [], null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a'); a.href = url; a.download = 'activity-logs.json'; a.click();
+              URL.revokeObjectURL(url);
+            });
+          }}>
+            <Download className="w-4 h-4 mr-2" />
+            Export JSON
+          </Button>
+        </div>
       </div>
 
       <Card>

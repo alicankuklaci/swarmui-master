@@ -1,6 +1,10 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import Dockerode from 'dockerode';
+import * as yaml from 'js-yaml';
 import { DockerService } from '../../../docker/docker.service';
+import { StackFile } from './stack-file.schema';
 
 export interface StackInfo {
   name: string;
@@ -12,38 +16,60 @@ export interface StackInfo {
 @Injectable()
 export class StacksService {
   private readonly logger = new Logger(StacksService.name);
-  // In-memory store for compose files (in production, persist to DB)
-  private composeFiles = new Map<string, string>();
 
-  constructor(private readonly dockerService: DockerService) {}
+  constructor(
+    private readonly dockerService: DockerService,
+    @InjectModel(StackFile.name) private stackFileModel: Model<StackFile>,
+  ) {}
 
   private getDocker(endpointId?: string): Dockerode {
     return this.dockerService.getLocalConnection();
   }
 
+  private listServicesWithStatus(docker: Dockerode, filters?: Record<string, string[]>): Promise<any[]> {
+    const opts: Record<string, any> = { status: true };
+    if (filters) opts.filters = JSON.stringify(filters);
+    return (docker as any).listServices(opts);
+  }
+
   async list(endpointId?: string): Promise<StackInfo[]> {
     const docker = this.getDocker(endpointId);
-    const services = await docker.listServices();
+    const [services, networks] = await Promise.all([
+      this.listServicesWithStatus(docker),
+      docker.listNetworks(),
+    ]);
 
-    const stacks = new Map<string, { services: string[]; tasks: number }>();
+    const stacks = new Map<string, { serviceIds: string[]; running: number; desired: number }>();
 
     for (const svc of services) {
       const stackName = svc.Spec?.Labels?.['com.docker.stack.namespace'];
       if (!stackName) continue;
 
       if (!stacks.has(stackName)) {
-        stacks.set(stackName, { services: [], tasks: 0 });
+        stacks.set(stackName, { serviceIds: [], running: 0, desired: 0 });
       }
-      stacks.get(stackName)!.services.push(svc.ID!);
+      const stack = stacks.get(stackName)!;
+      stack.serviceIds.push(svc.ID!);
+      stack.running += (svc as any).ServiceStatus?.RunningTasks ?? 0;
+      stack.desired += svc.Spec?.Mode?.Replicated?.Replicas
+        ?? (svc as any).ServiceStatus?.DesiredTasks
+        ?? (svc.Spec?.Mode?.Global !== undefined ? 1 : 1);
+    }
+
+    // Also discover stacks from networks (catches stacks with no running services)
+    for (const net of networks) {
+      const stackName = net.Labels?.['com.docker.stack.namespace'];
+      if (stackName && !stacks.has(stackName)) {
+        stacks.set(stackName, { serviceIds: [], running: 0, desired: 0 });
+      }
     }
 
     const result: StackInfo[] = [];
     for (const [name, info] of stacks) {
-      const tasks = await docker.listTasks({ filters: JSON.stringify({ label: [`com.docker.stack.namespace=${name}`] }) });
       result.push({
         name,
-        services: info.services.length,
-        tasks: tasks.length,
+        services: info.serviceIds.length,
+        tasks: info.running,
         createdAt: new Date().toISOString(),
       });
     }
@@ -53,18 +79,27 @@ export class StacksService {
 
   async inspect(name: string, endpointId?: string) {
     const docker = this.getDocker(endpointId);
-    const services = await docker.listServices({
-      filters: JSON.stringify({ label: [`com.docker.stack.namespace=${name}`] }),
-    });
+    const services = await this.listServicesWithStatus(docker, { label: [`com.docker.stack.namespace=${name}`] });
     if (services.length === 0) throw new NotFoundException(`Stack ${name} not found`);
-    return { name, services };
+
+    const serviceDetails = services.map((svc: any) => ({
+      id: svc.ID,
+      name: svc.Spec?.Name,
+      image: svc.Spec?.TaskTemplate?.ContainerSpec?.Image?.split('@')[0] ?? '—',
+      replicas: {
+        running: svc.ServiceStatus?.RunningTasks ?? 0,
+        desired: svc.Spec?.Mode?.Replicated?.Replicas ?? svc.ServiceStatus?.DesiredTasks ?? 1,
+      },
+      ports: svc.Endpoint?.Ports ?? [],
+      updatedAt: svc.UpdatedAt,
+    }));
+
+    return { name, services: serviceDetails };
   }
 
   async getServices(name: string, endpointId?: string) {
     const docker = this.getDocker(endpointId);
-    return docker.listServices({
-      filters: JSON.stringify({ label: [`com.docker.stack.namespace=${name}`] }),
-    });
+    return this.listServicesWithStatus(docker, { label: [`com.docker.stack.namespace=${name}`] });
   }
 
   async getTasks(name: string, endpointId?: string) {
@@ -75,14 +110,44 @@ export class StacksService {
   }
 
   async deploy(name: string, composeContent: string, endpointId?: string) {
-    // Store compose file for later retrieval
-    this.composeFiles.set(name, composeContent);
+    // Store compose file in MongoDB for persistence
+    await this.stackFileModel.findOneAndUpdate(
+      { name },
+      { content: composeContent },
+      { upsert: true },
+    );
 
     // Parse compose and deploy services
     try {
       const compose = this.parseComposeFile(composeContent);
+
+      if (!compose.services || Object.keys(compose.services).length === 0) {
+        throw new Error('No services defined in compose file');
+      }
+
       const docker = this.getDocker(endpointId);
       const deployedServices: any[] = [];
+
+      // Create networks first
+      if (compose.networks) {
+        for (const [networkName] of Object.entries(compose.networks || {})) {
+          const fullNetworkName = `${name}_${networkName}`;
+          try {
+            const existing = await docker.listNetworks({
+              filters: JSON.stringify({ name: [fullNetworkName] }),
+            });
+            if (existing.length === 0) {
+              await docker.createNetwork({
+                Name: fullNetworkName,
+                Driver: 'overlay',
+                Labels: { 'com.docker.stack.namespace': name },
+              });
+            }
+          } catch (err: any) {
+            this.logger.warn(`Failed to create network ${fullNetworkName}: ${err.message}`);
+          }
+        }
+      }
 
       for (const [serviceName, serviceConfig] of Object.entries(compose.services || {})) {
         const spec = this.buildServiceSpec(name, serviceName, serviceConfig as any, compose);
@@ -109,7 +174,7 @@ export class StacksService {
 
       return { stack: name, services: deployedServices };
     } catch (err: any) {
-      throw new BadRequestException(`Failed to parse compose file: ${err.message}`);
+      throw new BadRequestException(`Failed to deploy stack: ${err.message}`);
     }
   }
 
@@ -122,26 +187,46 @@ export class StacksService {
     if (services.length === 0) throw new NotFoundException(`Stack ${name} not found`);
 
     await Promise.all(services.map(svc => docker.getService(svc.ID!).remove()));
-    this.composeFiles.delete(name);
+
+    // Also clean up stack networks
+    try {
+      const networks = await docker.listNetworks({
+        filters: JSON.stringify({ label: [`com.docker.stack.namespace=${name}`] }),
+      });
+      await Promise.all(networks.map(net => docker.getNetwork(net.Id!).remove()));
+    } catch (err: any) {
+      this.logger.warn(`Failed to remove some networks for stack ${name}: ${err.message}`);
+    }
+
+    await this.stackFileModel.deleteOne({ name });
 
     return { message: `Stack ${name} removed` };
   }
 
-  getComposeFile(name: string): string {
-    const content = this.composeFiles.get(name);
-    if (!content) throw new NotFoundException(`Compose file for stack ${name} not found`);
-    return content;
+  async getComposeFile(name: string): Promise<string> {
+    const doc = await this.stackFileModel.findOne({ name });
+    if (!doc) throw new NotFoundException(`Compose file for stack ${name} not found`);
+    return doc.content;
   }
 
   private parseComposeFile(content: string): any {
-    // Simple YAML-like key:value parser (use a real YAML lib in production)
-    // For now, return a basic structure; in production use 'js-yaml'
+    // Try JSON first
     try {
-      // Try JSON first (for testing)
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      if (parsed && typeof parsed === 'object') return parsed;
     } catch {
-      // Return minimal structure for basic YAML
-      return { services: {} };
+      // Not JSON, try YAML
+    }
+
+    // Parse YAML
+    try {
+      const parsed = yaml.load(content) as any;
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('Invalid compose file format');
+      }
+      return parsed;
+    } catch (err: any) {
+      throw new Error(`Invalid compose file: ${err.message}`);
     }
   }
 
@@ -172,7 +257,7 @@ export class StacksService {
       Networks: (config.networks || []).map((n: string) => ({ Target: `${stackName}_${n}` })),
       EndpointSpec: {
         Ports: (config.ports || []).map((p: string) => {
-          const parts = p.split(':');
+          const parts = String(p).split(':');
           return {
             Protocol: 'tcp',
             PublishedPort: parseInt(parts[0]) || 0,
@@ -182,4 +267,9 @@ export class StacksService {
       },
     };
   }
+  async update(name: string, composeContent: string, endpointId?: string) {
+    return this.deploy(name, composeContent, endpointId);
+  }
+
+
 }

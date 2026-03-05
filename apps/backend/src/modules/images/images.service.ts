@@ -93,4 +93,42 @@ export class ImagesService {
     const docker = this.getDocker(endpointId);
     return docker.searchImages({ term });
   }
+
+  async checkUpdate(id: string, endpointId?: string) {
+    const docker = this.getDocker(endpointId);
+    const image = docker.getImage(id);
+    const info = await image.inspect();
+    const repoTags = info.RepoTags || [];
+    if (repoTags.length === 0 || repoTags[0] === '<none>:<none>') {
+      return { hasUpdate: false, reason: 'No repo tag' };
+    }
+
+    const repoTag = repoTags[0];
+    const [fullRepo, tag] = repoTag.includes(':')
+      ? [repoTag.substring(0, repoTag.lastIndexOf(':')), repoTag.substring(repoTag.lastIndexOf(':') + 1)]
+      : [repoTag, 'latest'];
+
+    // Only check Docker Hub (library or user repos)
+    const repo = fullRepo.includes('/') ? fullRepo : `library/${fullRepo}`;
+    const currentDigest = (info.RepoDigests || [])[0]?.split('@')[1] || '';
+
+    try {
+      const https = await import('https');
+      const data: string = await new Promise((resolve, reject) => {
+        const url = `https://hub.docker.com/v2/repositories/${repo}/tags/${tag}`;
+        https.get(url, { timeout: 5000 }, (res: any) => {
+          let body = '';
+          res.on('data', (c: any) => { body += c; });
+          res.on('end', () => resolve(body));
+          res.on('error', reject);
+        }).on('error', reject);
+      });
+      const parsed = JSON.parse(data);
+      const latestDigest = parsed.images?.[0]?.digest || parsed.digest || '';
+      const hasUpdate = !!(latestDigest && currentDigest && latestDigest !== currentDigest);
+      return { hasUpdate, currentDigest: currentDigest.slice(0, 16), latestDigest: latestDigest.slice(0, 16), tag };
+    } catch (err: any) {
+      return { hasUpdate: false, reason: 'Check failed: ' + err.message };
+    }
+  }
 }

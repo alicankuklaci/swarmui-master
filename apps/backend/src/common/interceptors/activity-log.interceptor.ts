@@ -1,11 +1,12 @@
-import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Request } from 'express';
+import { ActivityLogsService } from '../../modules/activity-logs/activity-logs.service';
 
 @Injectable()
 export class ActivityLogInterceptor implements NestInterceptor {
-  private readonly logger = new Logger('ActivityLog');
+  constructor(private readonly activityLogsService: ActivityLogsService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const ctx = context.switchToHttp();
@@ -16,14 +17,26 @@ export class ActivityLogInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap(() => {
-        const duration = Date.now() - start;
-        const response = ctx.getResponse();
-        const statusCode = response.statusCode;
-
         if (user && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-          this.logger.log(
-            `[${user.username}] ${method} ${url} ${statusCode} ${duration}ms ip=${ip}`,
-          );
+          const response = ctx.getResponse();
+          const statusCode = response.statusCode;
+          const duration = Date.now() - start;
+          const resource = url.split('/').filter(Boolean)[2] || url;
+
+          this.activityLogsService
+            .create({
+              userId: user.id,
+              username: user.username,
+              action: `${method} ${url}`,
+              resource,
+              method,
+              path: url,
+              statusCode,
+              ip,
+              userAgent: request.headers['user-agent'],
+              details: `duration=${duration}ms`,
+            })
+            .catch(() => {});
         }
       }),
     );

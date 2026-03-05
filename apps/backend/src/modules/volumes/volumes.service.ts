@@ -59,4 +59,74 @@ export class VolumesService {
     const docker = this.getDocker(endpointId);
     return docker.pruneVolumes();
   }
+
+  async browse(name: string, browsePath = '/', endpointId?: string) {
+    const docker = this.getDocker(endpointId);
+    const safePath = browsePath.replace(/\.\./g, '').replace(/[;&|`$]/g, '');
+    const dataPath = `/data${safePath.startsWith('/') ? safePath : '/' + safePath}`;
+
+    let container: any;
+    try {
+      // Pull alpine if not present
+      try {
+        await docker.getImage('alpine:latest').inspect();
+      } catch {
+        await new Promise<void>((res, rej) => docker.pull('alpine:latest', (err: any, stream: any) => {
+          if (err) return rej(err);
+          docker.modem.followProgress(stream, (e: any) => e ? rej(e) : res());
+        }));
+      }
+      container = await docker.createContainer({
+        Image: 'alpine',
+        Cmd: ['ls', '-la', dataPath],
+        HostConfig: { Binds: [`${name}:/data:ro`], AutoRemove: true },
+      });
+      await container.start();
+      const logs = await new Promise<string>((resolve, reject) => {
+        (container.logs as any)(
+          { stdout: true, stderr: true, follow: true },
+          (err: any, stream: any) => {
+            if (err) return reject(err);
+            const chunks: Buffer[] = [];
+            stream.on('data', (c: Buffer) => chunks.push(c));
+            stream.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+            stream.on('error', reject);
+          },
+        );
+      });
+
+      // Wait for container to finish
+      try { await container.wait(); } catch (_) {}
+
+      const lines = logs.split('\n').filter((l) => l.trim());
+      const files = lines.slice(1).map((line) => {
+        // Strip Docker log header (8 bytes) if present
+        let clean = line;
+        if (clean.charCodeAt(0) <= 2 && clean.length > 8) {
+          clean = clean.substring(8);
+        }
+        // Remove non-printable characters
+        clean = clean.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+        const parts = clean.split(/\s+/);
+        if (parts.length < 9) return null;
+        const perms = parts[0];
+        const size = parseInt(parts[4]) || 0;
+        const date = `${parts[5]} ${parts[6]} ${parts[7]}`;
+        const fileName = parts.slice(8).join(' ');
+        if (fileName === '.' || fileName === '..') return null;
+        return {
+          name: fileName,
+          type: perms.startsWith('d') ? 'dir' : 'file',
+          size,
+          date,
+          permissions: perms,
+        };
+      }).filter(Boolean);
+
+      return files;
+    } catch (err: any) {
+      this.logger.error(`Volume browse error: ${err.message}`);
+      throw new NotFoundException(`Cannot browse volume ${name}: ${err.message}`);
+    }
+  }
 }

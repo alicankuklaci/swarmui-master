@@ -90,6 +90,24 @@ export class ContainersController {
     return this.containersService.prune(endpointId);
   }
 
+  @Get(':id/logs/raw')
+  async logsRaw(
+    @Param('endpointId') endpointId: string,
+    @Param('id') id: string,
+    @Query('tail') tail?: string,
+  ) {
+    const logs = await this.containersService.getLogsString(id, tail ? parseInt(tail) : 100, endpointId);
+    return { logs };
+  }
+
+  @Get(':id/stats/single')
+  async statsSingle(
+    @Param('endpointId') endpointId: string,
+    @Param('id') id: string,
+  ) {
+    return this.containersService.getStatsSingle(id, endpointId);
+  }
+
   @Sse(':id/logs')
   logs(
     @Param('endpointId') endpointId: string,
@@ -106,5 +124,32 @@ export class ContainersController {
     @Param('id') id: string,
   ): Observable<MessageEvent> {
     return this.containersService.getStats(id, endpointId);
+  }
+
+
+  @Patch(':id/resources')
+  updateResources(
+    @Param('endpointId') endpointId: string,
+    @Param('id') id: string,
+    @Body() body: { memory?: number; cpuQuota?: number; cpuShares?: number },
+  ) {
+    return this.containersService.updateResources(id, body.memory, body.cpuQuota, body.cpuShares, endpointId);
+  }
+
+  @Post(':id/duplicate')
+  @HttpCode(HttpStatus.OK)
+  duplicate(
+    @Param('endpointId') endpointId: string,
+    @Param('id') id: string,
+  ) {
+    return this.containersService.duplicate(id, endpointId);
+  }
+
+  @Get(':id/node-info')
+  async nodeInfo(
+    @Param('endpointId') endpointId: string,
+    @Param('id') id: string,
+  ) {
+    return this.containersService.getNodeInfo(id);
   }
 }

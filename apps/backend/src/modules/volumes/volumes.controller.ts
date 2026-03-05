@@ -37,6 +37,15 @@ export class VolumesController {
     return this.volumesService.remove(name, force === 'true', endpointId);
   }
 
+  @Get(':name/browse')
+  browse(
+    @Param('endpointId') endpointId: string,
+    @Param('name') name: string,
+    @Query('path') browsePath?: string,
+  ) {
+    return this.volumesService.browse(name, browsePath || '/', endpointId);
+  }
+
   @Delete()
   prune(@Param('endpointId') endpointId: string) {
     return this.volumesService.prune(endpointId);

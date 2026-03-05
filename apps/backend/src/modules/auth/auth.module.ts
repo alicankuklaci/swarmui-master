@@ -10,6 +10,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { RefreshToken, RefreshTokenSchema } from './schemas/refresh-token.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
+import { AuthLogsModule } from '../auth-logs/auth-logs.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { User, UserSchema } from '../users/schemas/user.schema';
       { name: User.name, schema: UserSchema },
       { name: RefreshToken.name, schema: RefreshTokenSchema },
     ]),
+    AuthLogsModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, MfaService, JwtStrategy, LocalStrategy],
