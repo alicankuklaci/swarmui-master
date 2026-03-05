@@ -3,6 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth.store';
 
 interface StatPoint {
   time: string;
@@ -31,26 +32,31 @@ export function StatsChart({ endpointId, containerId, className }: StatsChartPro
   const esRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const url = `/api/endpoints/${endpointId}/containers/${containerId}/stats`;
+    const token = useAuthStore.getState().accessToken || '';
+    const url = `/api/v1/endpoints/${endpointId}/containers/${containerId}/stats${token ? '?token=' + encodeURIComponent(token) : ''}`;
     const es = new EventSource(url);
     esRef.current = es;
 
     es.onmessage = (e) => {
       try {
-        const stats = JSON.parse(e.data);
+        const parsed = JSON.parse(e.data);
+        const stats = parsed.data ?? parsed;
+        if (!stats || !stats.cpu) return;
         setCurrent(stats);
-        const time = new Date(stats.timestamp).toLocaleTimeString();
+        const time = stats.timestamp ? new Date(stats.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
         setData((prev) => [
           ...prev.slice(-30),
           {
             time,
-            cpu: stats.cpu.percent,
-            memPercent: stats.memory.percent,
-            netRx: stats.network.rxBytes,
-            netTx: stats.network.txBytes,
+            cpu: stats?.cpu?.percent ?? 0,
+            memPercent: stats?.memory?.percent ?? 0,
+            netRx: stats?.network?.rxBytes ?? 0,
+            netTx: stats?.network?.txBytes ?? 0,
           },
         ]);
-      } catch {}
+      } catch (err) {
+        console.error("Stats parse error:", err);
+      }
     };
 
     es.onerror = () => es.close();
@@ -68,22 +74,22 @@ export function StatsChart({ endpointId, containerId, className }: StatsChartPro
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-muted rounded-lg p-3">
             <div className="text-xs text-muted-foreground">CPU</div>
-            <div className="text-xl font-bold">{current.cpu.percent.toFixed(1)}%</div>
+            <div className="text-xl font-bold">{current?.cpu?.percent?.toFixed(1) ?? 0}%</div>
           </div>
           <div className="bg-muted rounded-lg p-3">
             <div className="text-xs text-muted-foreground">Memory</div>
-            <div className="text-xl font-bold">{current.memory.percent.toFixed(1)}%</div>
+            <div className="text-xl font-bold">{current?.memory?.percent?.toFixed(1) ?? 0}%</div>
             <div className="text-xs text-muted-foreground">
-              {formatBytes(current.memory.usage)} / {formatBytes(current.memory.limit)}
+              {formatBytes(current?.memory?.usage ?? 0)} / {formatBytes(current?.memory?.limit ?? 0)}
             </div>
           </div>
           <div className="bg-muted rounded-lg p-3">
             <div className="text-xs text-muted-foreground">Net RX</div>
-            <div className="text-xl font-bold">{formatBytes(current.network.rxBytes)}</div>
+            <div className="text-xl font-bold">{formatBytes(current?.network?.rxBytes ?? 0)}</div>
           </div>
           <div className="bg-muted rounded-lg p-3">
             <div className="text-xs text-muted-foreground">Net TX</div>
-            <div className="text-xl font-bold">{formatBytes(current.network.txBytes)}</div>
+            <div className="text-xl font-bold">{formatBytes(current?.network?.txBytes ?? 0)}</div>
           </div>
         </div>
       )}
