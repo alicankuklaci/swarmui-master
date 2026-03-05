@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Download, Trash2, PauseCircle, PlayCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuthStore } from '@/stores/auth.store';
 
 interface LogEntry {
   type: 'stdout' | 'stderr';
@@ -13,9 +14,12 @@ interface LogViewerProps {
   containerId: string;
   tail?: number;
   className?: string;
+  resourceType?: 'container' | 'service';
+  /** Direct agent URL for remote swarm nodes e.g. http://10.0.0.11:9001 */
+  agentUrl?: string;
 }
 
-export function LogViewer({ endpointId, containerId, tail = 200, className }: LogViewerProps) {
+export function LogViewer({ endpointId, containerId, tail = 200, className, resourceType = 'container', agentUrl }: LogViewerProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [paused, setPaused] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -28,20 +32,35 @@ export function LogViewer({ endpointId, containerId, tail = 200, className }: Lo
   }, [paused]);
 
   useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    const url = `/api/endpoints/${endpointId}/containers/${containerId}/logs?tail=${tail}&follow=true`;
+    const token = useAuthStore.getState().accessToken || '';
+    const AGENT_TOKEN = 'supersecret';
+    let url: string;
+    if (agentUrl) {
+      // Direct connection to node agent (Docker API proxy)
+      url = `${agentUrl}/containers/${containerId}/logs?stdout=1&stderr=1&tail=${tail}&follow=1`;
+    } else {
+      const basePath = resourceType === 'service'
+        ? `/api/v1/endpoints/${endpointId}/swarm/services/${containerId}/logs`
+        : `/api/v1/endpoints/${endpointId}/containers/${containerId}/logs`;
+      url = `${basePath}?tail=${tail}&follow=true${token ? '&token=' + encodeURIComponent(token) : ''}`;
+    }
 
     // SSE doesn't support custom headers, so we use query params for auth
-    const es = new EventSource(url);
+    const finalUrl = agentUrl
+      ? `${url}&token=${encodeURIComponent(AGENT_TOKEN)}`
+      : url;
+    const es = new EventSource(finalUrl);
     eventSourceRef.current = es;
 
     es.onopen = () => setConnected(true);
 
     es.onmessage = (e) => {
       if (pausedRef.current) return;
+      if (!e.data || e.data === '') return;
       try {
         const data = JSON.parse(e.data);
-        setLogs((prev) => [...prev.slice(-2000), data]);
+        const logData = data.data ?? data;
+        setLogs((prev) => [...prev.slice(-2000), typeof logData === 'object' && logData.text ? logData : { type: 'stdout', text: typeof logData === 'string' ? logData : JSON.stringify(logData) }]);
       } catch {
         setLogs((prev) => [...prev.slice(-2000), { type: 'stdout', text: e.data }]);
       }
