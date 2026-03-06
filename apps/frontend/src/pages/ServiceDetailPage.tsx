@@ -128,6 +128,7 @@ export function ServiceDetailPage() {
         <TabsList>
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
+          <TabsTrigger value="update">Update Service</TabsTrigger>
           <TabsTrigger value="update-policy">Update Policy</TabsTrigger>
         </TabsList>
 
@@ -175,6 +176,11 @@ export function ServiceDetailPage() {
         {/* Logs Tab */}
         <TabsContent value="logs" className="mt-4">
           <LogViewer endpointId={endpointId} containerId={serviceId} resourceType="service" />
+        </TabsContent>
+
+        {/* Update Service Tab */}
+        <TabsContent value="update" className="mt-4">
+          <ServiceUpdateForm endpointId={endpointId} serviceId={serviceId} service={service} />
         </TabsContent>
 
         {/* Update Policy Tab */}
@@ -255,6 +261,118 @@ function UpdatePolicyForm({ endpointId, serviceId, service }: { endpointId: stri
           <RotateCw className="w-4 h-4 mr-2" />
           Force Redeploy
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function ServiceUpdateForm({ endpointId, serviceId, service }: { endpointId: string; serviceId: string; service: any }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const spec = service?.Spec ?? {};
+  const ct = spec?.TaskTemplate?.ContainerSpec ?? {};
+  const currentImage = ct.Image?.split('@')[0] ?? '';
+  const currentEnv: string[] = ct.Env ?? [];
+  const currentConstraints: string[] = spec.TaskTemplate?.Placement?.Constraints ?? [];
+  const currentLabels: Record<string,string> = spec.Labels ?? {};
+
+  const [image, setImage] = useState(currentImage);
+  const [envLines, setEnvLines] = useState(currentEnv.join('\n'));
+  const [constraintLines, setConstraintLines] = useState(currentConstraints.join('\n'));
+  const [labelLines, setLabelLines] = useState(
+    Object.entries(currentLabels).map(([k,v]) => `${k}=${v}`).join('\n')
+  );
+
+  const updateMutation = useMutation({
+    mutationFn: (body: any) => api.patch(`/endpoints/${endpointId}/swarm/services/${serviceId}`, body),
+    onSuccess: () => {
+      toast({ title: 'Service updated', description: 'Changes applied successfully' });
+      qc.invalidateQueries({ queryKey: ['service', endpointId, serviceId] });
+      qc.invalidateQueries({ queryKey: ['service-tasks', endpointId, serviceId] });
+    },
+    onError: (e: any) => toast({ variant: 'destructive', title: 'Update failed', description: e.response?.data?.message || e.message }),
+  });
+
+  const handleSubmit = () => {
+    const newSpec = JSON.parse(JSON.stringify(spec));
+    // Image
+    if (image.trim()) {
+      newSpec.TaskTemplate.ContainerSpec.Image = image.trim();
+    }
+    // Env
+    const envArr = envLines.split('\n').map(l => l.trim()).filter(Boolean);
+    newSpec.TaskTemplate.ContainerSpec.Env = envArr;
+    // Constraints
+    const constraintArr = constraintLines.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!newSpec.TaskTemplate.Placement) newSpec.TaskTemplate.Placement = {};
+    newSpec.TaskTemplate.Placement.Constraints = constraintArr;
+    // Labels
+    const labelObj: Record<string,string> = {};
+    labelLines.split('\n').map(l => l.trim()).filter(Boolean).forEach(line => {
+      const eq = line.indexOf('=');
+      if (eq > 0) labelObj[line.slice(0,eq)] = line.slice(eq+1);
+    });
+    newSpec.Labels = labelObj;
+
+    updateMutation.mutate(newSpec);
+  };
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div className="space-y-2">
+        <Label className="font-semibold">Image</Label>
+        <Input value={image} onChange={e => setImage(e.target.value)} placeholder="nginx:latest" className="font-mono text-sm" />
+        <p className="text-xs text-muted-foreground">Image'ı değiştirmek servisin rolling update başlatır</p>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="font-semibold">Environment Variables</Label>
+        <p className="text-xs text-muted-foreground">Her satıra bir değişken: KEY=VALUE</p>
+        <textarea
+          value={envLines}
+          onChange={e => setEnvLines(e.target.value)}
+          className="w-full h-40 px-3 py-2 border rounded-md font-mono text-xs bg-background resize-y"
+          placeholder={"NODE_ENV=production\nPORT=3000"}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="font-semibold">Placement Constraints</Label>
+        <p className="text-xs text-muted-foreground">Her satıra bir constraint: node.role == manager</p>
+        <textarea
+          value={constraintLines}
+          onChange={e => setConstraintLines(e.target.value)}
+          className="w-full h-24 px-3 py-2 border rounded-md font-mono text-xs bg-background resize-y"
+          placeholder={"node.role == manager\nnode.hostname == node01"}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="font-semibold">Service Labels</Label>
+        <p className="text-xs text-muted-foreground">Her satıra bir label: key=value</p>
+        <textarea
+          value={labelLines}
+          onChange={e => setLabelLines(e.target.value)}
+          className="w-full h-24 px-3 py-2 border rounded-md font-mono text-xs bg-background resize-y"
+          placeholder={"com.example.version=1.0\ntraefik.enable=true"}
+        />
+      </div>
+
+      <div className="flex items-center gap-3 pt-2">
+        <Button onClick={handleSubmit} disabled={updateMutation.isPending} className="min-w-32">
+          {updateMutation.isPending ? 'Updating...' : '✓ Apply Changes'}
+        </Button>
+        <Button variant="outline" onClick={() => {
+          setImage(currentImage);
+          setEnvLines(currentEnv.join('\n'));
+          setConstraintLines(currentConstraints.join('\n'));
+          setLabelLines(Object.entries(currentLabels).map(([k,v]) => `${k}=${v}`).join('\n'));
+        }}>Reset</Button>
+        <span className="text-xs text-muted-foreground">
+          {updateMutation.isSuccess ? '✓ Son güncelleme başarılı' : ''}
+          {updateMutation.isError ? '✗ Hata oluştu' : ''}
+        </span>
       </div>
     </div>
   );
