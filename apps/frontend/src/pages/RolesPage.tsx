@@ -27,7 +27,7 @@ export function RolesPage() {
     queryKey: ['roles'],
     queryFn: async () => {
       const res = await api.get('/roles');
-      return res.data.data;
+      return res.data?.data ?? [];
     },
   });
 

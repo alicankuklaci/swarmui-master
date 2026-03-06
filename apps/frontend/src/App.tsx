@@ -15,6 +15,7 @@ import { ContainerDetailPage } from '@/pages/ContainerDetailPage';
 import { ImagesPage } from '@/pages/ImagesPage';
 import { NetworksPage } from '@/pages/NetworksPage';
 import { VolumesPage } from '@/pages/VolumesPage';
+import { ClusterVisualizerPage } from './pages/ClusterVisualizerPage';
 import { SwarmPage } from '@/pages/SwarmPage';
 import { NodesPage } from '@/pages/NodesPage';
 import { ServicesPage } from '@/pages/ServicesPage';
@@ -86,6 +87,7 @@ export default function App() {
           {/* Swarm */}
           <Route path="swarm" element={<SwarmPage />} />
           <Route path="nodes" element={<NodesPage />} />
+          <Route path="visualizer" element={<ClusterVisualizerPage />} />
           <Route path="services" element={<ServicesPage />} />
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="stacks" element={<StacksPage />} />
