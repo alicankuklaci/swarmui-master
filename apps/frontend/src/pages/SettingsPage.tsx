@@ -71,6 +71,8 @@ export function SettingsPage() {
               <TabsTrigger value="smtp"><Mail className="w-4 h-4 mr-2" />SMTP</TabsTrigger>
               <TabsTrigger value="notifications"><Webhook className="w-4 h-4 mr-2" />Webhooks</TabsTrigger>
               <TabsTrigger value="logs"><Clock className="w-4 h-4 mr-2" />Log Retention</TabsTrigger>
+              <TabsTrigger value="ldap">🔌 LDAP/AD</TabsTrigger>
+              <TabsTrigger value="oauth">🔐 OAuth</TabsTrigger>
             </TabsList>
 
             <TabsContent value="general" className="space-y-4">
@@ -192,6 +194,63 @@ export function SettingsPage() {
                     <Label>Activity Log Retention (days)</Label>
                     <Input {...register('activityLogRetentionDays')} type="number" min={1} max={365} className="max-w-xs" />
                     <p className="text-xs text-muted-foreground">API request audit trail. Default: 90 days.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="ldap" className="space-y-4">
+              <Card>
+                <CardHeader><CardTitle>LDAP / Active Directory</CardTitle><CardDescription>Kurumsal directory servisi ile kimlik doğrulama. Authentication Method'u "LDAP/AD" seçin ve kaydedin.</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2"><Label>LDAP Server URL</Label><Input {...register('ldap.url')} placeholder="ldap://dc.company.com:389" className="font-mono text-sm" /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2"><Label>Bind DN</Label><Input {...register('ldap.bindDn')} placeholder="cn=admin,dc=company,dc=com" className="font-mono text-sm" /></div>
+                      <div className="space-y-2"><Label>Bind Password</Label><Input {...register('ldap.bindPassword')} type="password" placeholder="••••••••" /></div>
+                    </div>
+                    <div className="space-y-2"><Label>Search Base</Label><Input {...register('ldap.searchBase')} placeholder="ou=users,dc=company,dc=com" className="font-mono text-sm" /></div>
+                    <div className="space-y-2"><Label>Search Filter</Label><Input {...register('ldap.searchFilter')} placeholder="(uid={username})" className="font-mono text-sm" /></div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2"><Label>Username Attribute</Label><Input {...register('ldap.usernameAttribute')} placeholder="uid" /></div>
+                      <div className="space-y-2"><Label>Email Attribute</Label><Input {...register('ldap.emailAttribute')} placeholder="mail" /></div>
+                    </div>
+                  </div>
+                  <div className="bg-muted/50 rounded p-3 text-xs text-muted-foreground">
+                    <p>💡 Aktif Dizin için tipik ayarlar: Bind DN = <code>cn=service-account,cn=Users,dc=company,dc=com</code>, Search Filter = <code>(sAMAccountName=&#123;username&#125;)</code></p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="oauth" className="space-y-4">
+              <Card>
+                <CardHeader><CardTitle>OAuth 2.0 / OpenID Connect</CardTitle><CardDescription>Google, GitHub, Azure AD veya özel OAuth provider ile SSO</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Provider</Label>
+                    <Controller name="oauth.provider" control={control} render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value || ''}>
+                        <SelectTrigger className="max-w-xs"><SelectValue placeholder="Provider seç..." /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="google">Google</SelectItem>
+                          <SelectItem value="github">GitHub</SelectItem>
+                          <SelectItem value="microsoft">Microsoft / Azure AD</SelectItem>
+                          <SelectItem value="custom">Custom / Self-hosted</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>Client ID</Label><Input {...register('oauth.clientId')} className="font-mono text-sm" /></div>
+                    <div className="space-y-2"><Label>Client Secret</Label><Input {...register('oauth.clientSecret')} type="password" /></div>
+                  </div>
+                  <div className="space-y-2"><Label>Authorization URL</Label><Input {...register('oauth.authorizationUrl')} className="font-mono text-sm" /></div>
+                  <div className="space-y-2"><Label>Token URL</Label><Input {...register('oauth.tokenUrl')} className="font-mono text-sm" /></div>
+                  <div className="space-y-2"><Label>User Info URL</Label><Input {...register('oauth.userInfoUrl')} className="font-mono text-sm" /></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2"><Label>Scopes</Label><Input {...register('oauth.scopes')} placeholder="openid email profile" /></div>
+                    <div className="space-y-2"><Label>Redirect URI</Label><Input {...register('oauth.redirectUri')} placeholder={window.location.origin + '/auth/oauth/callback'} className="font-mono text-sm" /></div>
                   </div>
                 </CardContent>
               </Card>
