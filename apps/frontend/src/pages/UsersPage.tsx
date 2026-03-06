@@ -36,7 +36,7 @@ export function UsersPage() {
     queryKey: ['users', search],
     queryFn: async () => {
       const res = await api.get('/users', { params: { search, limit: 50 } });
-      return res.data.data;
+      return res.data?.data?.data ?? res.data?.data ?? [];
     },
   });
 
@@ -126,7 +126,7 @@ export function UsersPage() {
                 className="pl-9"
               />
             </div>
-            <span className="text-sm text-muted-foreground">{data?.total || 0} users</span>
+            <span className="text-sm text-muted-foreground">{data?.length || 0} users</span>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -147,12 +147,12 @@ export function UsersPage() {
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</TableCell>
                 </TableRow>
-              ) : data?.data?.length === 0 ? (
+              ) : !data?.length ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No users found</TableCell>
                 </TableRow>
               ) : (
-                data?.data?.map((user: any) => (
+                data?.map((user: any) => (
                   <TableRow key={user._id}>
                     <TableCell className="font-medium">{user.username}</TableCell>
                     <TableCell className="text-muted-foreground">{user.email}</TableCell>
@@ -167,7 +167,7 @@ export function UsersPage() {
                     <TableCell>
                       <Badge variant="outline">{user.authProvider}</Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{formatDate(user.createdAt)}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{user.createdAt ? formatDate(user.createdAt) : "—"}</TableCell>
                     <TableCell className="text-right space-x-1">
                       <Button variant="ghost" size="icon" onClick={() => openEdit(user)} title="Edit user">
                         <Edit className="w-4 h-4" />

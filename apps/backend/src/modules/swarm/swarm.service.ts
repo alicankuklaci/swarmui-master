@@ -36,6 +36,11 @@ export class SwarmService {
     return docker.swarmLeave({ force });
   }
 
+  async listTasks(endpointId?: string) {
+    const docker = this.getDocker(endpointId);
+    return docker.listTasks({});
+  }
+
   async info(endpointId?: string) {
     const docker = this.getDocker(endpointId);
     const info = await docker.info();

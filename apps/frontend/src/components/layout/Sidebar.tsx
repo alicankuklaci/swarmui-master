@@ -33,6 +33,7 @@ const navSections = [
     items: [
       { to: '/swarm', icon: Grid3X3, label: 'Swarm' },
       { to: '/nodes', icon: Server, label: 'Nodes' },
+      { to: '/visualizer', icon: LayoutDashboard, label: 'Cluster Visualizer' },
       { to: '/services', icon: Layers, label: 'Services' },
       { to: '/stacks', icon: GitBranch, label: 'Stacks' },
     ],

@@ -19,6 +19,11 @@ export class SwarmController {
     return this.swarmService.info(endpointId);
   }
 
+  @Get('tasks')
+  listTasks(@Param('endpointId') endpointId: string) {
+    return this.swarmService.listTasks(endpointId);
+  }
+
   @Post('init')
   @HttpCode(HttpStatus.OK)
   init(

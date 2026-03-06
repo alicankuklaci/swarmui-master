@@ -22,7 +22,7 @@ export function TeamsPage() {
     queryKey: ['teams', search],
     queryFn: async () => {
       const res = await api.get('/teams', { params: { search, limit: 50 } });
-      return res.data.data;
+      return res.data?.data?.data ?? res.data?.data ?? [];
     },
   });
 
