@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Req, Res, UseGuards, HttpCode, HttpStatus, Get } from '@nestjs/common';
+import { Controller, Post, Body, Req, Res, UseGuards, HttpCode, HttpStatus, Get, Query, Redirect } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
@@ -10,6 +10,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthLogsService } from '../auth-logs/auth-logs.service';
+import { SettingsService } from '../settings/settings.service';
 
 
 @ApiTags('Auth')
@@ -19,6 +20,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly mfaService: MfaService,
     private readonly authLogsService: AuthLogsService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   @Public()
@@ -128,4 +130,25 @@ export class AuthController {
   async mfaDisable(@CurrentUser('id') userId: string, @Body('token') token: string) {
     return this.mfaService.disableMfa(userId, token);
   }
+
+  @Public()
+  @Get('oauth/redirect')
+  @ApiOperation({ summary: 'Get OAuth authorization URL' })
+  async oauthRedirect(@Res() res: any) {
+    try {
+      const url = await this.authService.getOAuthRedirectUrl(this.settingsService);
+      return res.redirect(url);
+    } catch (e: any) {
+      return res.status(400).json({ message: (e as any).message });
+    }
+  }
+
+  @Public()
+  @Get('oauth/callback')
+  @ApiOperation({ summary: 'OAuth callback handler' })
+  async oauthCallback(@Query('code') code: string, @Res({ passthrough: true }) res: any) {
+    if (!code) throw new Error('No code provided');
+    return this.authService.handleOAuthCallback(code, this.settingsService, res);
+  }
+
 }

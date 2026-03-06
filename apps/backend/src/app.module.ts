@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import { SyslogService } from './common/services/syslog.service';
 import { ActivityLogInterceptor } from './common/interceptors/activity-log.interceptor';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -85,6 +86,7 @@ import { PrometheusModule } from '@willsoto/nestjs-prometheus';
     PrometheusModule.register({ path: '/metrics' }),
   ],
   providers: [
+    SyslogService,
     {
       provide: APP_INTERCEPTOR,
       useClass: ActivityLogInterceptor,

@@ -71,6 +71,7 @@ export function SettingsPage() {
               <TabsTrigger value="smtp"><Mail className="w-4 h-4 mr-2" />SMTP</TabsTrigger>
               <TabsTrigger value="notifications"><Webhook className="w-4 h-4 mr-2" />Webhooks</TabsTrigger>
               <TabsTrigger value="logs"><Clock className="w-4 h-4 mr-2" />Log Retention</TabsTrigger>
+              <TabsTrigger value="syslog">📡 Syslog</TabsTrigger>
               <TabsTrigger value="ldap">🔌 LDAP/AD</TabsTrigger>
               <TabsTrigger value="oauth">🔐 OAuth</TabsTrigger>
             </TabsList>
@@ -194,6 +195,41 @@ export function SettingsPage() {
                     <Label>Activity Log Retention (days)</Label>
                     <Input {...register('activityLogRetentionDays')} type="number" min={1} max={365} className="max-w-xs" />
                     <p className="text-xs text-muted-foreground">API request audit trail. Default: 90 days.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="syslog" className="space-y-4">
+              <Card>
+                <CardHeader><CardTitle>Syslog Export</CardTitle><CardDescription>Audit ve aktivite loglarını harici log aggregator'a gönder (RFC 5424)</CardDescription></CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Controller name="syslog.enabled" control={control} render={({ field }) => (
+                      <input type="checkbox" checked={!!field.value} onChange={field.onChange} className="rounded w-4 h-4" id="syslogEnabled" />
+                    )} />
+                    <Label htmlFor="syslogEnabled" className="cursor-pointer font-medium">Syslog Aktif</Label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="col-span-2 space-y-2"><Label>Syslog Host</Label><Input {...register('syslog.host')} placeholder="192.168.1.100 veya logs.company.com" className="font-mono text-sm" /></div>
+                    <div className="space-y-2"><Label>Port</Label><Input {...register('syslog.port')} type="number" placeholder="514" /></div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Protokol</Label>
+                    <Controller name="syslog.protocol" control={control} render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value || 'udp'}>
+                        <SelectTrigger className="max-w-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="udp">UDP (önerilen, düşük gecikme)</SelectItem>
+                          <SelectItem value="tcp">TCP (güvenilir iletim)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )} />
+                  </div>
+                  <div className="bg-muted/50 rounded p-3 text-xs text-muted-foreground space-y-1">
+                    <p>💡 <strong>Uyumlu sistemler:</strong> Graylog, Splunk, ELK Stack (Logstash), Datadog, Papertrail, rsyslog</p>
+                    <p>📋 <strong>Format:</strong> RFC 5424 — <code className="bg-muted px-1 rounded">&lt;134&gt;1 timestamp swarmui audit - - - json_payload</code></p>
+                    <p>⚠️ SYSLOG_HOST env var da desteklenir (container yeniden başlatma gerekmez)</p>
                   </div>
                 </CardContent>
               </Card>

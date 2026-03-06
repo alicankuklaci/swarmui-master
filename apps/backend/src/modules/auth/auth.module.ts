@@ -8,9 +8,12 @@ import { AuthController } from './auth.controller';
 import { MfaService } from './mfa.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
+import { LdapService } from './ldap.service';
+import { OAuthService } from './oauth.service';
 import { RefreshToken, RefreshTokenSchema } from './schemas/refresh-token.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { AuthLogsModule } from '../auth-logs/auth-logs.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
@@ -27,9 +30,10 @@ import { AuthLogsModule } from '../auth-logs/auth-logs.module';
       { name: RefreshToken.name, schema: RefreshTokenSchema },
     ]),
     AuthLogsModule,
+    SettingsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, MfaService, JwtStrategy, LocalStrategy],
+  providers: [AuthService, MfaService, JwtStrategy, LocalStrategy, LdapService, OAuthService],
   exports: [AuthService, MfaService],
 })
 export class AuthModule {}

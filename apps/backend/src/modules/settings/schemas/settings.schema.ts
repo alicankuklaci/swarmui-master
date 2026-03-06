@@ -61,6 +61,15 @@ export class Settings {
   @Prop({ type: [String], default: [] })
   notificationEmails?: string[];
 
+  // Syslog Configuration
+  @Prop({ type: Object })
+  syslog?: {
+    enabled?: boolean;
+    host?: string;
+    port?: number;
+    protocol?: string;
+  };
+
   // LDAP Configuration
   @Prop({ type: Object })
   ldap?: {

@@ -113,6 +113,9 @@ importers:
       js-yaml:
         specifier: ^4.1.1
         version: 4.1.1
+      ldapts:
+        specifier: ^8.1.7
+        version: 8.1.7
       mongoose:
         specifier: ^8.2.0
         version: 8.23.0
@@ -4313,6 +4316,10 @@ packages:
     resolution: {integrity: sha512-b94GiNHQNy6JNTrt5w6zNyffMrNkXZb3KTkCZJb2V1xaEGCk093vkZ2jk3tpaeP33/OiXC+WvK9AxUebnf5nbw==}
     engines: {node: '>= 0.6.3'}
 
+  ldapts@8.1.7:
+    resolution: {integrity: sha512-TJl6T92eIwMf/OJ0hDfKVa6ISwzo+lqCWCI5Mf//ARlKa3LKQZaSrme/H2rCRBhW0DZCQlrsV+fgoW5YHRNLUw==}
+    engines: {node: '>=20'}
+
   leven@3.1.0:
     resolution: {integrity: sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A==}
     engines: {node: '>=6'}
@@ -5307,6 +5314,9 @@ packages:
 
   streamx@2.23.0:
     resolution: {integrity: sha512-kn+e44esVfn2Fa/O0CPFcex27fjIL6MkVae0Mm6q+E6f0hWv578YCERbv+4m02cjxvDsPKLnmxral/rR6lBMAg==}
+
+  strict-event-emitter-types@2.0.0:
+    resolution: {integrity: sha512-Nk/brWYpD85WlOgzw5h173aci0Teyv8YdIAEtV+N88nDB0dLlazZyJMIsN6eo1/AR61l+p6CJTG1JIyFaoNEEA==}
 
   string-length@4.0.2:
     resolution: {integrity: sha512-+l6rNN5fYHNhZZy41RXsYptCjA2Igmq4EG7kZAYFQI1E1VTXarr6ZPXBg6eq7Y6eK4FEhY6AJlyuFIb/v/S0VQ==}
@@ -10680,6 +10690,10 @@ snapshots:
     dependencies:
       readable-stream: 2.3.8
 
+  ldapts@8.1.7:
+    dependencies:
+      strict-event-emitter-types: 2.0.0
+
   leven@3.1.0: {}
 
   levn@0.4.1:
@@ -11674,6 +11688,8 @@ snapshots:
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
+
+  strict-event-emitter-types@2.0.0: {}
 
   string-length@4.0.2:
     dependencies:
