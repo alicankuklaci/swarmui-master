@@ -5,9 +5,11 @@ import {
 import { Response } from 'express';
 import { StacksService } from './stacks.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { RbacGuard } from '../../../common/guards/rbac.guard';
+import { Roles } from '../../../common/decorators/roles.decorator';
 
 @Controller('endpoints/:endpointId/swarm/stacks')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RbacGuard)
 export class StacksController {
   constructor(private readonly stacksService: StacksService) {}
 
@@ -17,6 +19,7 @@ export class StacksController {
   }
 
   @Post()
+  @Roles('admin', 'operator')
   deploy(
     @Param('endpointId') endpointId: string,
     @Body() body: { name: string; composeContent: string },
@@ -25,6 +28,7 @@ export class StacksController {
   }
 
   @Put(':name')
+  @Roles('admin', 'operator')
   update(
     @Param('endpointId') endpointId: string,
     @Param('name') name: string,
@@ -60,6 +64,7 @@ export class StacksController {
   }
 
   @Delete(':name')
+  @Roles('admin', 'operator')
   remove(@Param('endpointId') endpointId: string, @Param('name') name: string) {
     return this.stacksService.remove(name, endpointId);
   }

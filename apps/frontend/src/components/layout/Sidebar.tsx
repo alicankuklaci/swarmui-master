@@ -7,6 +7,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/app.store';
+import { useAuthStore } from '@/stores/auth.store';
 import { cn } from '@/lib/utils';
 
 const navSections = [
@@ -67,6 +68,8 @@ const navSections = [
 
 export function Sidebar() {
   const { sidebarOpen, toggleSidebar } = useAppStore();
+  const userRole = useAuthStore((s) => s.user?.role);
+  const isAdmin = userRole === 'admin';
 
   return (
     <aside
@@ -97,7 +100,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 py-2 overflow-y-auto">
-        {navSections.map((section, si) => (
+        {navSections.filter((section) => section.title !== 'Admin' || isAdmin).map((section, si) => (
           <div key={si} className="mb-1">
             {section.title && sidebarOpen && (
               <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">

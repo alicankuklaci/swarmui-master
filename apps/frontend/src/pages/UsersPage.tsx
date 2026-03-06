@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Edit, MoreHorizontal, Search } from 'lucide-react';
+import { Plus, Trash2, Edit, Search, KeyRound } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,11 @@ const roleColors: Record<string, 'default' | 'secondary' | 'destructive' | 'warn
 export function UsersPage() {
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editUser, setEditUser] = useState<any>(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordUserId, setPasswordUserId] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -47,6 +52,31 @@ export function UsersPage() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.put(`/users/${id}`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setEditOpen(false);
+      toast({ title: 'User updated' });
+    },
+    onError: (err: any) => {
+      toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Failed to update user' });
+    },
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ id, password }: { id: string; password: string }) =>
+      api.post(`/users/${id}/reset-password`, { password }),
+    onSuccess: () => {
+      setPasswordOpen(false);
+      setNewPassword('');
+      toast({ title: 'Password reset', description: 'User password has been changed' });
+    },
+    onError: (err: any) => {
+      toast({ variant: 'destructive', title: 'Error', description: err.response?.data?.message || 'Failed to reset password' });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/users/${id}`),
     onSuccess: () => {
@@ -60,6 +90,17 @@ export function UsersPage() {
   });
 
   const onSubmit = (data: any) => createMutation.mutate(data);
+
+  function openEdit(user: any) {
+    setEditUser({ ...user });
+    setEditOpen(true);
+  }
+
+  function openPasswordReset(userId: string) {
+    setPasswordUserId(userId);
+    setNewPassword('');
+    setPasswordOpen(true);
+  }
 
   return (
     <div className="space-y-6">
@@ -127,12 +168,19 @@ export function UsersPage() {
                       <Badge variant="outline">{user.authProvider}</Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">{formatDate(user.createdAt)}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-x-1">
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(user)} title="Edit user">
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => openPasswordReset(user._id)} title="Reset password">
+                        <KeyRound className="w-4 h-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
                         className="text-destructive hover:text-destructive"
                         onClick={() => deleteMutation.mutate(user._id)}
+                        title="Delete user"
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -193,6 +241,77 @@ export function UsersPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit User Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit User: {editUser?.username}</DialogTitle>
+          </DialogHeader>
+          {editUser && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input
+                  value={editUser.email || ''}
+                  onChange={(e) => setEditUser({ ...editUser, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Role</Label>
+                <Select value={editUser.role} onValueChange={(v) => setEditUser({ ...editUser, role: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="admin">Administrator</SelectItem>
+                    <SelectItem value="operator">Operator</SelectItem>
+                    <SelectItem value="helpdesk">Helpdesk</SelectItem>
+                    <SelectItem value="standard">Standard</SelectItem>
+                    <SelectItem value="readonly">Read Only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={() => updateMutation.mutate({ id: editUser._id, data: { email: editUser.email, role: editUser.role } })}
+                  disabled={updateMutation.isPending}
+                >
+                  {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>New Password</Label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Enter new password (min 8 characters)"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPasswordOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => resetPasswordMutation.mutate({ id: passwordUserId, password: newPassword })}
+              disabled={newPassword.length < 8 || resetPasswordMutation.isPending}
+            >
+              {resetPasswordMutation.isPending ? 'Resetting...' : 'Reset Password'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

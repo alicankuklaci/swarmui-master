@@ -4,9 +4,11 @@ import {
 } from '@nestjs/common';
 import { NodesService } from './nodes.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { RbacGuard } from '../../../common/guards/rbac.guard';
+import { Roles } from '../../../common/decorators/roles.decorator';
 
 @Controller('endpoints/:endpointId/swarm/nodes')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RbacGuard)
 export class NodesController {
   constructor(private readonly nodesService: NodesService) {}
 
@@ -21,6 +23,7 @@ export class NodesController {
   }
 
   @Patch(':id')
+  @Roles('admin')
   update(
     @Param('endpointId') endpointId: string,
     @Param('id') id: string,
@@ -30,6 +33,7 @@ export class NodesController {
   }
 
   @Delete(':id')
+  @Roles('admin')
   remove(
     @Param('endpointId') endpointId: string,
     @Param('id') id: string,

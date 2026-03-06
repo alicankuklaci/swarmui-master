@@ -4,9 +4,11 @@ import {
 } from '@nestjs/common';
 import { VolumesService } from './volumes.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RbacGuard } from '../../common/guards/rbac.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @Controller('endpoints/:endpointId/volumes')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RbacGuard)
 export class VolumesController {
   constructor(private readonly volumesService: VolumesService) {}
 
@@ -16,6 +18,7 @@ export class VolumesController {
   }
 
   @Post()
+  @Roles('admin', 'operator')
   create(
     @Param('endpointId') endpointId: string,
     @Body() body: { name: string; driver?: string; driverOpts?: Record<string, string>; labels?: Record<string, string> },
@@ -29,6 +32,7 @@ export class VolumesController {
   }
 
   @Delete(':name')
+  @Roles('admin', 'operator')
   remove(
     @Param('endpointId') endpointId: string,
     @Param('name') name: string,
@@ -47,6 +51,7 @@ export class VolumesController {
   }
 
   @Delete()
+  @Roles('admin')
   prune(@Param('endpointId') endpointId: string) {
     return this.volumesService.prune(endpointId);
   }

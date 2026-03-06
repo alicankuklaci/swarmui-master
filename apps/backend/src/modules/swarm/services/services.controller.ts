@@ -5,9 +5,11 @@ import {
 import { Observable } from 'rxjs';
 import { ServicesService } from './services.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { RbacGuard } from '../../../common/guards/rbac.guard';
+import { Roles } from '../../../common/decorators/roles.decorator';
 
 @Controller('endpoints/:endpointId/swarm/services')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RbacGuard)
 export class ServicesController {
   constructor(private readonly servicesService: ServicesService) {}
 
@@ -17,6 +19,7 @@ export class ServicesController {
   }
 
   @Post()
+  @Roles('admin', 'operator')
   create(@Param('endpointId') endpointId: string, @Body() spec: any) {
     return this.servicesService.create(spec, endpointId);
   }
@@ -27,11 +30,13 @@ export class ServicesController {
   }
 
   @Patch(':id')
+  @Roles('admin', 'operator')
   update(@Param('endpointId') endpointId: string, @Param('id') id: string, @Body() spec: any) {
     return this.servicesService.update(id, spec, endpointId);
   }
 
   @Post(':id/scale')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   scale(
     @Param('endpointId') endpointId: string,
@@ -42,12 +47,14 @@ export class ServicesController {
   }
 
   @Post(':id/force-update')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   forceUpdate(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.servicesService.forceUpdate(id, endpointId);
   }
 
   @Patch(':id/update-policy')
+  @Roles('admin', 'operator')
   updatePolicy(
     @Param('endpointId') endpointId: string,
     @Param('id') id: string,
@@ -57,12 +64,14 @@ export class ServicesController {
   }
 
   @Post(':id/rollback')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   rollback(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.servicesService.rollback(id, endpointId);
   }
 
   @Delete(':id')
+  @Roles('admin', 'operator')
   remove(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.servicesService.remove(id, endpointId);
   }
