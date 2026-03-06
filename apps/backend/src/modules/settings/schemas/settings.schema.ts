@@ -60,6 +60,32 @@ export class Settings {
   // Email notification recipients
   @Prop({ type: [String], default: [] })
   notificationEmails?: string[];
+
+  // LDAP Configuration
+  @Prop({ type: Object })
+  ldap?: {
+    url?: string;
+    bindDn?: string;
+    bindPassword?: string;
+    searchBase?: string;
+    searchFilter?: string;
+    usernameAttribute?: string;
+    emailAttribute?: string;
+    tlsEnabled?: boolean;
+  };
+
+  // OAuth Configuration
+  @Prop({ type: Object })
+  oauth?: {
+    provider?: string;
+    clientId?: string;
+    clientSecret?: string;
+    authorizationUrl?: string;
+    tokenUrl?: string;
+    userInfoUrl?: string;
+    scopes?: string;
+    redirectUri?: string;
+  };
 }
 
 export const SettingsSchema = SchemaFactory.createForClass(Settings);
