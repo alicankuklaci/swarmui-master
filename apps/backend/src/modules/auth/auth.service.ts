@@ -134,4 +134,69 @@ export class AuthService {
     };
     return parseInt(value) * multipliers[unit];
   }
+
+  // Called by LocalStrategy — checks authMethod and delegates
+  async validateUserWithMethod(username: string, password: string, settingsService: any): Promise<any> {
+    const settings = await settingsService.getSettings();
+    const method = settings?.authenticationMethod || 'local';
+
+    if (method === 'ldap') {
+      return this.validateUserLdap(username, password, settings, settingsService);
+    }
+    // local
+    return this.validateUser(username, password);
+  }
+
+  async validateUserLdap(username: string, password: string, settings: any, settingsService: any): Promise<any> {
+    const { LdapService } = await import('./ldap.service');
+    const ldapSvc = new LdapService();
+    try {
+      const ldapUser = await ldapSvc.authenticate(settings, username, password);
+      if (!ldapUser) return null;
+      // Find or create local user record
+      let user = await this.userModel.findOne({ username: ldapUser.username });
+      if (!user) {
+        const bcrypt = await import('bcrypt');
+        const randomPass = await bcrypt.hash(Math.random().toString(36), 10);
+        user = await this.userModel.create({
+          username: ldapUser.username,
+          email: ldapUser.email || `${ldapUser.username}@ldap.local`,
+          password: randomPass,
+          role: 'readonly',
+          authSource: 'ldap',
+        });
+      }
+      return user.toObject();
+    } catch (e) {
+      this.logger.error('LDAP validate error:', (e as any).message);
+      return null;
+    }
+  }
+
+  async getOAuthRedirectUrl(settingsService: any): Promise<string> {
+    const settings = await settingsService.getSettings();
+    const { OAuthService } = await import('./oauth.service');
+    return new OAuthService().getAuthorizationUrl(settings);
+  }
+
+  async handleOAuthCallback(code: string, settingsService: any, res: any): Promise<any> {
+    const settings = await settingsService.getSettings();
+    const { OAuthService } = await import('./oauth.service');
+    const oauthUser = await new OAuthService().exchangeCode(settings, code);
+    // Find or create user
+    let user = await this.userModel.findOne({ email: oauthUser.email });
+    if (!user) {
+      const bcrypt = await import('bcrypt');
+      const randomPass = await bcrypt.hash(Math.random().toString(36), 10);
+      user = await this.userModel.create({
+        username: oauthUser.username,
+        email: oauthUser.email,
+        password: randomPass,
+        role: 'readonly',
+        authSource: 'oauth',
+        displayName: oauthUser.name,
+      });
+    }
+    return this.login(user.toObject(), res);
+  }
 }

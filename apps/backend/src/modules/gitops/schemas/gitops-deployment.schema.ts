@@ -61,6 +61,19 @@ export class GitopsDeployment {
   @Prop({ default: '' })
   lastError: string;
 
+  // Change Window: only deploy during allowed time
+  @Prop({ default: false })
+  changeWindowEnabled: boolean;
+
+  @Prop({ default: '00:00' })
+  changeWindowStart: string; // HH:MM
+
+  @Prop({ default: '23:59' })
+  changeWindowEnd: string; // HH:MM
+
+  @Prop({ type: [Number], default: [0,1,2,3,4,5,6] })
+  changeWindowDays: number[]; // 0=Sun, 6=Sat
+
   @Prop({ type: [Object], default: [] })
   deployHistory: GitopsDeployHistory[];
 }

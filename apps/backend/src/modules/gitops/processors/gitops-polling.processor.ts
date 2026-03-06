@@ -42,6 +42,22 @@ export class GitopsPollingProcessor extends WorkerHost {
         return;
       }
 
+
+    // Check change window
+    if (dep.changeWindowEnabled) {
+      const now = new Date();
+      const day = now.getDay();
+      const hhmm = now.getHours() * 60 + now.getMinutes();
+      const [startH, startM] = (dep.changeWindowStart || '00:00').split(':').map(Number);
+      const [endH, endM] = (dep.changeWindowEnd || '23:59').split(':').map(Number);
+      const start = startH * 60 + startM;
+      const end = endH * 60 + endM;
+      const days: number[] = dep.changeWindowDays?.length ? dep.changeWindowDays : [0,1,2,3,4,5,6];
+      if (!days.includes(day) || hhmm < start || hhmm > end) {
+        this.logger.log(`Change window closed for ${dep.name} — skipping deploy`);
+        return;
+      }
+    }
       this.logger.log(`New commit detected for ${dep.name}: ${latestCommit.sha}`);
 
       // Mark as running

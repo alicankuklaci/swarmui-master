@@ -20,7 +20,7 @@ const STATUS_ICON: Record<string, any> = {
   failed: <XCircle className="h-4 w-4 text-red-500" />,
 };
 
-const emptyForm = { name: '', deployType: 'stack', repoUrl: '', branch: 'main', composePath: 'docker-compose.yml', gitCredentialsId: '', pollingIntervalMinutes: 5, autoUpdate: true };
+const emptyForm = { name: '', deployType: 'stack', repoUrl: '', branch: 'main', composePath: 'docker-compose.yml', gitCredentialsId: '', pollingIntervalMinutes: 5, autoUpdate: true, changeWindowEnabled: false, changeWindowStart: '09:00', changeWindowEnd: '18:00', changeWindowDays: [1,2,3,4,5] };
 const emptyCredForm = { name: '', type: 'pat', username: '', token: '', description: '' };
 
 export function GitopsPage() {
@@ -195,6 +195,33 @@ export function GitopsPage() {
                   <SelectContent><SelectItem value="true">Aktif (polling)</SelectItem><SelectItem value="false">Sadece webhook / manual</SelectItem></SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="border-t pt-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" id="cwEnabled" checked={form.changeWindowEnabled} onChange={e=>setForm(f=>({...f,changeWindowEnabled:e.target.checked}))} className="rounded" />
+                <Label htmlFor="cwEnabled" className="cursor-pointer">Change Window (belirli saatlerde deploy)</Label>
+              </div>
+              {form.changeWindowEnabled && (
+                <div className="pl-5 space-y-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1"><Label className="text-xs">Başlangıç</Label><Input type="time" value={form.changeWindowStart} onChange={e=>setForm(f=>({...f,changeWindowStart:e.target.value}))} /></div>
+                    <div className="space-y-1"><Label className="text-xs">Bitiş</Label><Input type="time" value={form.changeWindowEnd} onChange={e=>setForm(f=>({...f,changeWindowEnd:e.target.value}))} /></div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Günler</Label>
+                    <div className="flex gap-1 flex-wrap">
+                      {['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'].map((d,i)=>(
+                        <button key={i} type="button"
+                          onClick={()=>setForm(f=>({...f,changeWindowDays:f.changeWindowDays.includes(i)?f.changeWindowDays.filter((x:number)=>x!==i):[...f.changeWindowDays,i]}))}
+                          className={`px-2 py-1 text-xs rounded border ${form.changeWindowDays.includes(i)?'bg-primary text-primary-foreground border-primary':'bg-background border-border'}`}>
+                          {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
