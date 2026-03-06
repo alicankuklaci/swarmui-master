@@ -6,9 +6,11 @@ import { Observable } from 'rxjs';
 import { ContainersService } from './containers.service';
 import { CreateContainerDto, RenameContainerDto } from './dto/container.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RbacGuard } from '../../common/guards/rbac.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @Controller('endpoints/:endpointId/containers')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RbacGuard)
 export class ContainersController {
   constructor(private readonly containersService: ContainersService) {}
 
@@ -18,6 +20,7 @@ export class ContainersController {
   }
 
   @Post()
+  @Roles('admin', 'operator')
   create(@Param('endpointId') endpointId: string, @Body() dto: CreateContainerDto) {
     return this.containersService.create(dto, endpointId);
   }
@@ -28,24 +31,28 @@ export class ContainersController {
   }
 
   @Post(':id/start')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   start(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.containersService.start(id, endpointId);
   }
 
   @Post(':id/stop')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   stop(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.containersService.stop(id, endpointId);
   }
 
   @Post(':id/restart')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   restart(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.containersService.restart(id, endpointId);
   }
 
   @Post(':id/kill')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   kill(
     @Param('endpointId') endpointId: string,
@@ -56,18 +63,21 @@ export class ContainersController {
   }
 
   @Post(':id/pause')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   pause(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.containersService.pause(id, endpointId);
   }
 
   @Post(':id/unpause')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   unpause(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.containersService.unpause(id, endpointId);
   }
 
   @Patch(':id/rename')
+  @Roles('admin', 'operator')
   rename(
     @Param('endpointId') endpointId: string,
     @Param('id') id: string,
@@ -77,6 +87,7 @@ export class ContainersController {
   }
 
   @Delete(':id')
+  @Roles('admin', 'operator')
   remove(
     @Param('endpointId') endpointId: string,
     @Param('id') id: string,
@@ -86,6 +97,7 @@ export class ContainersController {
   }
 
   @Delete()
+  @Roles('admin')
   prune(@Param('endpointId') endpointId: string) {
     return this.containersService.prune(endpointId);
   }
@@ -128,6 +140,7 @@ export class ContainersController {
 
 
   @Patch(':id/resources')
+  @Roles('admin', 'operator')
   updateResources(
     @Param('endpointId') endpointId: string,
     @Param('id') id: string,
@@ -137,6 +150,7 @@ export class ContainersController {
   }
 
   @Post(':id/duplicate')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   duplicate(
     @Param('endpointId') endpointId: string,

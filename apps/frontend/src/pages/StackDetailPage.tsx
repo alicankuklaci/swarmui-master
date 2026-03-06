@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeftIcon, CopyIcon, CheckIcon, PencilIcon } from 'lucide-react';
+import Editor from '@monaco-editor/react';
+import yaml from 'js-yaml';
 
 function useStackDetail(endpointId: string, name: string) {
   return useQuery({
@@ -53,6 +55,17 @@ export function StackDetailPage() {
     onSuccess: () => { setEditOpen(false); setEditError(''); },
     onError: (e: any) => setEditError(e?.response?.data?.message || e?.message || 'Update failed'),
   });
+
+  function handleDeploy() {
+    try {
+      yaml.load(editContent);
+    } catch (e: any) {
+      setEditError(`YAML Error: ${e.message}`);
+      return;
+    }
+    setEditError('');
+    editMutation.mutate(editContent);
+  }
 
   function openEdit() {
     setEditContent(composeContent || '');
@@ -200,23 +213,33 @@ export function StackDetailPage() {
       </div>
       {/* Edit Stack Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Edit Stack: {name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <textarea
-              className="w-full h-64 rounded-md border bg-muted/30 px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              spellCheck={false}
-            />
+            <div className="border rounded-md overflow-hidden">
+              <Editor
+                height="500px"
+                language="yaml"
+                theme="vs-dark"
+                value={editContent}
+                onChange={(v) => setEditContent(v ?? '')}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  tabSize: 2,
+                }}
+              />
+            </div>
             {editError && <p className="text-sm text-destructive">{editError}</p>}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditOpen(false)} disabled={editMutation.isPending}>Cancel</Button>
-            <Button onClick={() => editMutation.mutate(editContent)} disabled={editMutation.isPending}>
-              {editMutation.isPending ? 'Updating...' : 'Update Stack'}
+            <Button onClick={handleDeploy} disabled={editMutation.isPending}>
+              {editMutation.isPending ? 'Deploying...' : 'Deploy Stack'}
             </Button>
           </DialogFooter>
         </DialogContent>

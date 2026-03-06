@@ -273,6 +273,9 @@ importers:
       '@tanstack/react-query-devtools':
         specifier: ^5.28.0
         version: 5.91.3(@tanstack/react-query@5.90.21(react@18.3.1))(react@18.3.1)
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -297,6 +300,9 @@ importers:
       date-fns:
         specifier: ^3.6.0
         version: 3.6.0
+      js-yaml:
+        specifier: ^4.1.1
+        version: 4.1.1
       lucide-react:
         specifier: ^0.368.0
         version: 0.368.0(react@18.3.1)

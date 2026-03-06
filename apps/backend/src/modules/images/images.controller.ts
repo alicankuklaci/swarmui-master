@@ -5,9 +5,11 @@ import {
 import { Observable } from 'rxjs';
 import { ImagesService } from './images.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RbacGuard } from '../../common/guards/rbac.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @Controller('endpoints/:endpointId/images')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RbacGuard)
 export class ImagesController {
   constructor(private readonly imagesService: ImagesService) {}
 
@@ -37,6 +39,7 @@ export class ImagesController {
   }
 
   @Sse('pull')
+  @Roles('admin', 'operator')
   pull(
     @Param('endpointId') endpointId: string,
     @Query('image') image: string,
@@ -46,6 +49,7 @@ export class ImagesController {
   }
 
   @Post(':id/tag')
+  @Roles('admin', 'operator')
   @HttpCode(HttpStatus.OK)
   tag(
     @Param('endpointId') endpointId: string,
@@ -56,6 +60,7 @@ export class ImagesController {
   }
 
   @Delete(':id')
+  @Roles('admin', 'operator')
   remove(
     @Param('endpointId') endpointId: string,
     @Param('id') id: string,
@@ -65,6 +70,7 @@ export class ImagesController {
   }
 
   @Delete()
+  @Roles('admin')
   prune(@Param('endpointId') endpointId: string) {
     return this.imagesService.prune(endpointId);
   }

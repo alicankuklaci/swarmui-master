@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Plus, Trash2, Search, ScanLine, CheckCircle, XCircle, AlertTriangle, Lock, Key } from 'lucide-react';
+import { Plus, Trash2, Search, ScanLine, CheckCircle, XCircle, Key, FileText } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/useToast';
+import { useAppStore } from '@/stores/app.store';
 
 const severityVariant: Record<string, any> = {
   CRITICAL: 'destructive',
@@ -22,10 +23,19 @@ const severityVariant: Record<string, any> = {
 
 export function SecurityPage() {
   const queryClient = useQueryClient();
+  const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
   const [scanImage, setScanImage] = useState('');
   const [scanResult, setScanResult] = useState<any>(null);
   const [showCreatePolicy, setShowCreatePolicy] = useState(false);
   const [policyForm, setPolicyForm] = useState({ name: '', description: '', readonlyRootFilesystem: false, noNewPrivileges: true, runAsNonRoot: false });
+
+  // Secret dialog state
+  const [showCreateSecret, setShowCreateSecret] = useState(false);
+  const [secretForm, setSecretForm] = useState({ name: '', value: '' });
+
+  // Config dialog state
+  const [showCreateConfig, setShowCreateConfig] = useState(false);
+  const [configForm, setConfigForm] = useState({ name: '', value: '' });
 
   const { data: policies, isLoading: loadingPolicies } = useQuery({
     throwOnError: false,
@@ -47,18 +57,25 @@ export function SecurityPage() {
 
   const { data: secrets, isLoading: loadingSecrets } = useQuery({
     throwOnError: false,
-    queryKey: ['docker-secrets'],
+    queryKey: ['docker-secrets', endpointId],
     queryFn: async () => {
-      const res = await api.get('/security/secrets');
+      const res = await api.get('/security/secrets', { params: { endpointId } });
+      return res.data?.data ?? res.data;
+    },
+  });
+
+  const { data: configs, isLoading: loadingConfigs } = useQuery({
+    throwOnError: false,
+    queryKey: ['docker-configs', endpointId],
+    queryFn: async () => {
+      const res = await api.get('/security/configs', { params: { endpointId } });
       return res.data?.data ?? res.data;
     },
   });
 
   const scanMutation = useMutation({
     mutationFn: (image: string) => api.post('/security/scan', { image }),
-    onSuccess: (res) => {
-      setScanResult(res.data);
-    },
+    onSuccess: (res) => { setScanResult(res.data); },
     onError: (e: any) => toast({ title: 'Scan failed', description: e.response?.data?.message, variant: 'destructive' }),
   });
 
@@ -79,6 +96,48 @@ export function SecurityPage() {
     },
   });
 
+  const createSecretMutation = useMutation({
+    mutationFn: (data: { name: string; value: string }) =>
+      api.post('/security/secrets', data, { params: { endpointId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['docker-secrets'] });
+      setShowCreateSecret(false);
+      setSecretForm({ name: '', value: '' });
+      toast({ title: 'Secret created' });
+    },
+    onError: (e: any) => toast({ title: 'Failed to create secret', description: e.response?.data?.message, variant: 'destructive' }),
+  });
+
+  const deleteSecretMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/security/secrets/${id}`, { params: { endpointId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['docker-secrets'] });
+      toast({ title: 'Secret deleted' });
+    },
+    onError: (e: any) => toast({ title: 'Failed to delete secret', description: e.response?.data?.message, variant: 'destructive' }),
+  });
+
+  const createConfigMutation = useMutation({
+    mutationFn: (data: { name: string; value: string }) =>
+      api.post('/security/configs', data, { params: { endpointId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['docker-configs'] });
+      setShowCreateConfig(false);
+      setConfigForm({ name: '', value: '' });
+      toast({ title: 'Config created' });
+    },
+    onError: (e: any) => toast({ title: 'Failed to create config', description: e.response?.data?.message, variant: 'destructive' }),
+  });
+
+  const deleteConfigMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/security/configs/${id}`, { params: { endpointId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['docker-configs'] });
+      toast({ title: 'Config deleted' });
+    },
+    onError: (e: any) => toast({ title: 'Failed to delete config', description: e.response?.data?.message, variant: 'destructive' }),
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -91,6 +150,7 @@ export function SecurityPage() {
           <TabsTrigger value="scan">Image Scan</TabsTrigger>
           <TabsTrigger value="policies">Policies</TabsTrigger>
           <TabsTrigger value="secrets">Secrets</TabsTrigger>
+          <TabsTrigger value="configs">Configs</TabsTrigger>
         </TabsList>
 
         {/* Image Scanning */}
@@ -224,6 +284,13 @@ export function SecurityPage() {
 
         {/* Secrets */}
         <TabsContent value="secrets" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <div />
+            <Button onClick={() => setShowCreateSecret(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Secret
+            </Button>
+          </div>
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -239,19 +306,77 @@ export function SecurityPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>ID</TableHead>
                     <TableHead>Created</TableHead>
+                    <TableHead className="w-20">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loadingSecrets ? (
-                    <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
                   ) : (secrets as any[])?.length === 0 ? (
-                    <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">No secrets found (requires Swarm mode)</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No secrets found (requires Swarm mode)</TableCell></TableRow>
                   ) : (
                     (secrets as any[])?.map((s: any) => (
                       <TableRow key={s.id}>
                         <TableCell className="font-medium">{s.name}</TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">{s.id?.substring(0, 12)}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" onClick={() => deleteSecretMutation.mutate(s.id)}>
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Configs */}
+        <TabsContent value="configs" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <div />
+            <Button onClick={() => setShowCreateConfig(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Config
+            </Button>
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Docker Configs
+              </CardTitle>
+              <CardDescription>Manage Docker Swarm configs</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead className="w-20">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loadingConfigs ? (
+                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                  ) : (configs as any[])?.length === 0 ? (
+                    <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No configs found (requires Swarm mode)</TableCell></TableRow>
+                  ) : (
+                    (configs as any[])?.map((c: any) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="font-medium">{c.name}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{c.id?.substring(0, 12)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{c.createdAt ? new Date(c.createdAt).toLocaleString() : '—'}</TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" onClick={() => deleteConfigMutation.mutate(c.id)}>
+                            <Trash2 className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -310,6 +435,82 @@ export function SecurityPage() {
               disabled={!policyForm.name || createPolicyMutation.isPending}
             >
               Create Policy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Secret Dialog */}
+      <Dialog open={showCreateSecret} onOpenChange={setShowCreateSecret}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Docker Secret</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Secret Name</Label>
+              <Input
+                value={secretForm.name}
+                onChange={(e) => setSecretForm({ ...secretForm, name: e.target.value })}
+                placeholder="my-secret"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Secret Value</Label>
+              <textarea
+                className="w-full h-32 rounded-md border bg-muted/30 px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                value={secretForm.value}
+                onChange={(e) => setSecretForm({ ...secretForm, value: e.target.value })}
+                placeholder="Enter secret value..."
+                spellCheck={false}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateSecret(false)}>Cancel</Button>
+            <Button
+              onClick={() => createSecretMutation.mutate(secretForm)}
+              disabled={!secretForm.name || !secretForm.value || createSecretMutation.isPending}
+            >
+              {createSecretMutation.isPending ? 'Creating...' : 'Create Secret'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Config Dialog */}
+      <Dialog open={showCreateConfig} onOpenChange={setShowCreateConfig}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Docker Config</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Config Name</Label>
+              <Input
+                value={configForm.name}
+                onChange={(e) => setConfigForm({ ...configForm, name: e.target.value })}
+                placeholder="my-config"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Config Data</Label>
+              <textarea
+                className="w-full h-32 rounded-md border bg-muted/30 px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                value={configForm.value}
+                onChange={(e) => setConfigForm({ ...configForm, value: e.target.value })}
+                placeholder="Enter config data..."
+                spellCheck={false}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateConfig(false)}>Cancel</Button>
+            <Button
+              onClick={() => createConfigMutation.mutate(configForm)}
+              disabled={!configForm.name || !configForm.value || createConfigMutation.isPending}
+            >
+              {createConfigMutation.isPending ? 'Creating...' : 'Create Config'}
             </Button>
           </DialogFooter>
         </DialogContent>
