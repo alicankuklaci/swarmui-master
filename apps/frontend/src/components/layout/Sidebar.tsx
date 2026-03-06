@@ -5,7 +5,7 @@ import {
   HardDrive, Image, Layers, GitBranch, Grid3X3,
   LayoutGrid, Package, GitMerge, HardDriveDownload, Lock, KeyRound, Bell,
   Radio,
-} from 'lucide-react';
+ ClipboardList,} from 'lucide-react';
 import { useAppStore } from '@/stores/app.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { cn } from '@/lib/utils';
@@ -34,6 +34,7 @@ const navSections = [
       { to: '/swarm', icon: Grid3X3, label: 'Swarm' },
       { to: '/nodes', icon: Server, label: 'Nodes' },
       { to: '/visualizer', icon: LayoutDashboard, label: 'Cluster Visualizer' },
+      { to: '/audit-log', icon: ClipboardList, label: 'Audit Log' },
       { to: '/services', icon: Layers, label: 'Services' },
       { to: '/stacks', icon: GitBranch, label: 'Stacks' },
     ],
