@@ -94,7 +94,7 @@ export default function AuditLogPage() {
             ) : logs.map((log: any) => (
               <tr key={log._id} className="border-t hover:bg-muted/30 transition-colors">
                 <td className="px-4 py-3 text-muted-foreground whitespace-nowrap font-mono text-xs">
-                  {log.createdAt ? format(new Date(log.createdAt), 'dd.MM.yy HH:mm:ss') : '-'}
+                  {log.createdAt ? format(new Date(log.createdAt), 'dd.MM.yyyy HH:mm:ss') : '-'}
                 </td>
                 <td className="px-4 py-3 font-medium">{log.username || <span className="text-muted-foreground">anonim</span>}</td>
                 <td className="px-4 py-3">

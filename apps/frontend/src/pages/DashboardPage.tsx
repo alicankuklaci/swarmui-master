@@ -219,7 +219,7 @@ export function DashboardPage() {
                     <Link key={stack.name} to={`/stacks/${stack.name}`}>
                       <div className="flex justify-between items-center py-1 px-2 rounded hover:bg-muted/50">
                         <span className="text-sm font-medium">{stack.name}</span>
-                        <Badge variant="secondary" className="text-xs">{stack.serviceCount ?? '?'} svc</Badge>
+                        <Badge variant="secondary" className="text-xs">{stack.services ?? stack.serviceCount ?? '?'} svc</Badge>
                       </div>
                     </Link>
                   ))}

@@ -278,6 +278,7 @@ function ServiceUpdateForm({ endpointId, serviceId, service }: { endpointId: str
   const currentLabels: Record<string,string> = spec.Labels ?? {};
 
   const [image, setImage] = useState(currentImage);
+  const [showEnv, setShowEnv] = useState(false);
   const [envLines, setEnvLines] = useState(currentEnv.join('\n'));
   const [constraintLines, setConstraintLines] = useState(currentConstraints.join('\n'));
   const [labelLines, setLabelLines] = useState(
@@ -328,13 +329,26 @@ function ServiceUpdateForm({ endpointId, serviceId, service }: { endpointId: str
 
       <div className="space-y-2">
         <Label className="font-semibold">Environment Variables</Label>
-        <p className="text-xs text-muted-foreground">Her satıra bir değişken: KEY=VALUE</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">Her satıra bir değişken: KEY=VALUE</p>
+          <button className="text-xs text-primary" onClick={() => setShowEnv(s=>!s)}>
+            {showEnv ? '🙈 Gizle' : '👁 Göster'}
+          </button>
+        </div>
         <textarea
-          value={envLines}
-          onChange={e => setEnvLines(e.target.value)}
+          value={showEnv ? envLines : envLines.split('\n').map(l => {
+            const eq = l.indexOf('=');
+            if (eq < 0) return l;
+            const key = l.slice(0, eq);
+            const isSensitive = /password|secret|key|token|pass|jwt|encrypt/i.test(key);
+            return isSensitive ? key + '=••••••••' : l;
+          }).join('\n')}
+          onChange={e => { if (showEnv) setEnvLines(e.target.value); }}
+          readOnly={!showEnv}
           className="w-full h-40 px-3 py-2 border rounded-md font-mono text-xs bg-background resize-y"
           placeholder={"NODE_ENV=production\nPORT=3000"}
         />
+        {!showEnv && <p className="text-xs text-amber-600">⚠ Hassas değerler maskelendi. Düzenlemek için "Göster"e tıklayın.</p>}
       </div>
 
       <div className="space-y-2">
