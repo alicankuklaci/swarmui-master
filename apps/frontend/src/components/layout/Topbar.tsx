@@ -1,13 +1,21 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, LogOut, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle } from 'lucide-react';
+import { Bell, LogOut, CheckCheck, Info, AlertTriangle, XCircle, CheckCircle, Globe } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';
 import { useLogout } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn, formatDate } from '@/lib/utils';
+
+const langs = [
+  { code: 'en', label: '🇬🇧 English' },
+  { code: 'tr', label: '🇹🇷 Türkçe' },
+  { code: 'de', label: '🇩🇪 Deutsch' },
+  { code: 'fr', label: '🇫🇷 Français' },
+];
 
 const levelIcon: Record<string, JSX.Element> = {
   info: <Info className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />,
@@ -21,8 +29,11 @@ export function Topbar() {
   const logoutMutation = useLogout();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { i18n } = useTranslation();
   const [bellOpen, setBellOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
+  const langRef = useRef<HTMLDivElement>(null);
 
   const { data: unreadData } = useQuery({
     queryKey: ['notifications-unread'],
@@ -58,6 +69,9 @@ export function Topbar() {
       if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
         setBellOpen(false);
       }
+      if (langRef.current && !langRef.current.contains(e.target as Node)) {
+        setLangOpen(false);
+      }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -81,6 +95,33 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Language switcher */}
+        <div className="relative" ref={langRef}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setLangOpen(!langOpen)}
+          >
+            <Globe className="w-5 h-5" />
+          </Button>
+          {langOpen && (
+            <div className="absolute right-0 top-12 w-44 bg-background border rounded-lg shadow-lg z-50 overflow-hidden py-1">
+              {langs.map((lang) => (
+                <button
+                  key={lang.code}
+                  onClick={() => { i18n.changeLanguage(lang.code); setLangOpen(false); }}
+                  className={cn(
+                    'w-full text-left px-4 py-2 text-sm hover:bg-muted/50 transition-colors',
+                    i18n.language.startsWith(lang.code) && 'bg-muted font-medium',
+                  )}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Bell with dropdown */}
         <div className="relative" ref={bellRef}>
           <Button
