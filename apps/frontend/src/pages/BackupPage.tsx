@@ -60,6 +60,20 @@ export function BackupPage() {
     },
   });
 
+  const handleDownload = async (jobId: string) => {
+    const stored = localStorage.getItem("swarmui-auth");
+    const token = stored ? JSON.parse(stored).token : "";
+    const res = await fetch(`/api/v1/backup/${jobId}/download`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) { alert("Download failed"); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `backup-${jobId}.zip`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const jobs = data || [];
 
   return (
@@ -162,7 +176,7 @@ export function BackupPage() {
                         {job.status === 'success' && job.storage === 'local' && (
                           <Button
                             variant="ghost" size="icon"
-                            onClick={() => window.open(`/api/v1/backup/${job._id}/download`, '_blank')}
+                            onClick={() => handleDownload(job._id)}
                           >
                             <Download className="w-4 h-4" />
                           </Button>
