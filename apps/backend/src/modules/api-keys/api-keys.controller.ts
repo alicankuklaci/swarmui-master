@@ -15,9 +15,16 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ApiKeysService } from './api-keys.service';
 import { ApiKeyScope } from './api-key.schema';
 
+import { IsString, IsArray, IsOptional } from 'class-validator';
+
 class CreateApiKeyDto {
+  @IsString()
+
   name: string;
+  @IsArray()
   scope: ApiKeyScope[];
+  @IsOptional()
+  @IsString()
   expiresAt?: string | null;
 }
 
