@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Container, Eye, EyeOff } from 'lucide-react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useLogin } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +19,7 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
+  const { t } = useTranslation();
   const loginMutation = useLogin();
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginForm>({
@@ -42,18 +44,18 @@ export function LoginPage() {
 
         <Card className="shadow-2xl border-gray-700 bg-gray-800/50 backdrop-blur">
           <CardHeader className="text-center pb-4">
-            <CardTitle className="text-white text-xl">Sign In</CardTitle>
+            <CardTitle className="text-white text-xl">{t('auth.signIn')}</CardTitle>
             <CardDescription className="text-gray-400">
-              Enter your credentials to access the dashboard
+              {t('auth.enterCredentials')}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-gray-300">Username</Label>
+                <Label htmlFor="username" className="text-gray-300">{t('auth.username')}</Label>
                 <Input
                   id="username"
-                  placeholder="Enter your username"
+                  placeholder={t('auth.enterUsername')}
                   {...register('username')}
                   className="bg-gray-700 border-gray-600 text-white placeholder:text-gray-400 focus:border-blue-500"
                 />
@@ -63,12 +65,12 @@ export function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-gray-300">Password</Label>
+                <Label htmlFor="password" className="text-gray-300">{t('auth.password')}</Label>
                 <div className="relative">
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Enter your password"
+                    placeholder={t('auth.enterPassword')}
                     {...register('password')}
                     className="bg-gray-700 border-gray-600 text-white placeholder:text-gray-400 focus:border-blue-500 pr-10"
                   />
@@ -90,7 +92,7 @@ export function LoginPage() {
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                 disabled={loginMutation.isPending}
               >
-                {loginMutation.isPending ? 'Signing in...' : 'Sign In'}
+                {loginMutation.isPending ? t('auth.signingIn') : t('auth.signIn')}
               </Button>
             </form>
 
