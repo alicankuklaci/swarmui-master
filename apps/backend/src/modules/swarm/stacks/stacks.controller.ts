@@ -58,7 +58,7 @@ export class StacksController {
     @Param('name') name: string,
     @Res() res: Response,
   ) {
-    const content = await this.stacksService.getComposeFile(name);
+    const content = await this.stacksService.getComposeFile(name, endpointId);
     res.setHeader('Content-Type', 'text/plain');
     res.send(content);
   }
