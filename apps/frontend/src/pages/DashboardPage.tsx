@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Server, Users, Network, Activity, Box, GitBranch, Layers } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +42,7 @@ function MiniBar({ label, value, max, color }: { label: string; value: number; m
 }
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
 
   const { data: usersData } = useQuery({
@@ -102,21 +104,21 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">SwarmUI Master — cluster overview</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('dashboard.title')}</h1>
+        <p className="text-muted-foreground">{t('dashboard.subtitle')}</p>
       </div>
 
       {/* Top Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Nodes" value={`${readyNodes}/${nodes.length}`} icon={Server}
+        <StatCard title={t('dashboard.nodes')} value={`${readyNodes}/${nodes.length}`} icon={Server}
           description={`${nodes.filter(n=>n.Spec?.Role==='manager').length} manager(s)`}
           color="bg-blue-500" to="/swarm" />
-        <StatCard title="Services" value={services.length} icon={Layers}
-          description={`${stacks.length} stacks`} color="bg-purple-500" to="/services" />
-        <StatCard title="Running Tasks" value={runningTasks} icon={Activity}
+        <StatCard title={t('dashboard.services')} value={services.length} icon={Layers}
+          description={`${stacks.length} ${t('dashboard.stacks').toLowerCase()}`} color="bg-purple-500" to="/services" />
+        <StatCard title={t('dashboard.runningTasks')} value={runningTasks} icon={Activity}
           description={failedTasks > 0 ? `⚠ ${failedTasks} failed` : 'All healthy'}
           color={failedTasks > 0 ? 'bg-red-500' : 'bg-green-500'} />
-        <StatCard title="Users" value={usersData?.total || 0} icon={Users}
+        <StatCard title={t('dashboard.users')} value={usersData?.total || 0} icon={Users}
           description="Active accounts" color="bg-orange-500" to="/users" />
       </div>
 
@@ -125,7 +127,7 @@ export function DashboardPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
-              <Server className="w-4 h-4" /> Cluster Resources
+              <Server className="w-4 h-4" /> {t('dashboard.clusterResources')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -230,7 +232,7 @@ export function DashboardPage() {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">System</CardTitle>
+              <CardTitle className="text-base">{t('dashboard.system')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {[
