@@ -114,7 +114,7 @@ export function ClusterVisualizerPage() {
 
   const setSelectedEndpoint = useAppStore((s) => s.setSelectedEndpoint);
 
-  const { data: endpointsData } = useQuery({
+  const { data: endpointsData = [] } = useQuery({
     queryKey: ['viz-endpoints'],
     queryFn: () => api.get('/endpoints?limit=100').then(r => r.data?.data ?? r.data),
   });
@@ -126,21 +126,21 @@ export function ClusterVisualizerPage() {
   }, [endpointId, endpointsData, setSelectedEndpoint]);
 
 
-  const { data: nodesData, isLoading: nodesLoading } = useQuery({
+  const { data: nodesData = [], isLoading: nodesLoading } = useQuery({
     queryKey: ['viz-nodes', endpointId],
     queryFn: () => api.get(`/endpoints/${endpointId}/swarm/nodes`).then(r => r.data?.data ?? []),
     enabled: !!endpointId,
     refetchInterval: 10000,
   });
 
-  const { data: tasksData, isLoading: tasksLoading } = useQuery({
+  const { data: tasksData = [], isLoading: tasksLoading } = useQuery({
     queryKey: ['viz-tasks', endpointId],
     queryFn: () => api.get(`/endpoints/${endpointId}/swarm/tasks`).then(r => r.data?.data ?? []),
     enabled: !!endpointId,
     refetchInterval: 10000,
   });
 
-  const { data: swarmInfo } = useQuery({
+  const { data: swarmInfo = [] } = useQuery({
     queryKey: ['swarm-info', endpointId],
     queryFn: () => api.get(`/endpoints/${endpointId}/swarm/info`).then(r => r.data?.data ?? {}),
     enabled: !!endpointId,

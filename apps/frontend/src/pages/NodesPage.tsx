@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 
 export function NodesPage() {
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
-  const { data: nodes, isLoading } = useNodes(endpointId);
+  const { data: nodes = [], isLoading } = useNodes(endpointId);
   const updateNode = useUpdateNode(endpointId);
   const removeNode = useRemoveNode(endpointId);
 

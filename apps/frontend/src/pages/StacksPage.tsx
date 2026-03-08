@@ -29,7 +29,7 @@ services:
 
 export function StacksPage() {
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
-  const { data: stacks, isLoading } = useStacks(endpointId);
+  const { data: stacks = [], isLoading } = useStacks(endpointId);
   const deployStack = useDeployStack(endpointId);
   const removeStack = useRemoveStack(endpointId);
 

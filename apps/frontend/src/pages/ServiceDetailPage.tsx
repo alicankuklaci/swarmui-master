@@ -26,8 +26,8 @@ export function ServiceDetailPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  const { data: service, isLoading: serviceLoading } = useService(endpointId, serviceId);
-  const { data: tasks, isLoading: tasksLoading } = useServiceTasks(endpointId, serviceId);
+  const { data: service = [], isLoading: serviceLoading } = useService(endpointId, serviceId);
+  const { data: tasks = [], isLoading: tasksLoading } = useServiceTasks(endpointId, serviceId);
 
   // Scale state
   const currentReplicas: number = service?.Spec?.Mode?.Replicated?.Replicas ?? 0;

@@ -26,8 +26,8 @@ export function VolumesPage() {
   const [browseVolume, setBrowseVolume] = useState<string | null>(null);
   const [browsePath, setBrowsePath] = useState('/');
 
-  const { data: volumesData, isLoading } = useVolumes(endpointId);
-  const { data: browseFiles, isLoading: browseLoading } = useQuery({
+  const { data: volumesData = [], isLoading } = useVolumes(endpointId);
+  const { data: browseFiles = [], isLoading: browseLoading } = useQuery({
     queryKey: ['volume-browse', endpointId, browseVolume, browsePath],
     queryFn: () => api.get(`/endpoints/${endpointId}/volumes/${browseVolume}/browse`, { params: { path: browsePath } }).then((r) => r.data?.data ?? r.data ?? []),
     enabled: !!endpointId && !!browseVolume,

@@ -25,7 +25,7 @@ import { useToast } from '@/hooks/useToast';
 const EMPTY_FORM = { name: '', type: 'pat', username: '', token: '', sshKey: '', description: '' };
 
 export function GitCredentialsPage() {
-  const { data: credentials, isLoading } = useGitCredentials();
+  const { data: credentials = [], isLoading } = useGitCredentials();
   const createCredentials = useCreateGitCredentials();
   const removeCredentials = useRemoveGitCredentials();
   const { toast } = useToast();

@@ -37,7 +37,7 @@ export function SecurityPage() {
   const [showCreateConfig, setShowCreateConfig] = useState(false);
   const [configForm, setConfigForm] = useState({ name: '', value: '' });
 
-  const { data: policies, isLoading: loadingPolicies } = useQuery({
+  const { data: policies = [], isLoading: loadingPolicies } = useQuery({
     throwOnError: false,
     queryKey: ['security-policies'],
     queryFn: async () => {
@@ -46,7 +46,7 @@ export function SecurityPage() {
     },
   });
 
-  const { data: trivyStatus } = useQuery({
+  const { data: trivyStatus = [] } = useQuery({
     throwOnError: false,
     queryKey: ['trivy-status'],
     queryFn: async () => {
@@ -55,7 +55,7 @@ export function SecurityPage() {
     },
   });
 
-  const { data: secrets, isLoading: loadingSecrets } = useQuery({
+  const { data: secrets = [], isLoading: loadingSecrets } = useQuery({
     throwOnError: false,
     queryKey: ['docker-secrets', endpointId],
     queryFn: async () => {
@@ -64,7 +64,7 @@ export function SecurityPage() {
     },
   });
 
-  const { data: configs, isLoading: loadingConfigs } = useQuery({
+  const { data: configs = [], isLoading: loadingConfigs } = useQuery({
     throwOnError: false,
     queryKey: ['docker-configs', endpointId],
     queryFn: async () => {

@@ -35,7 +35,7 @@ export function ContainersPage() {
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const { data: containers, isLoading } = useContainers(endpointId, showAll);
+  const { data: containers = [], isLoading } = useContainers(endpointId, showAll);
   const actionMutation = useContainerAction(endpointId);
   const removeMutation = useRemoveContainer(endpointId);
   const queryClient = useQueryClient();

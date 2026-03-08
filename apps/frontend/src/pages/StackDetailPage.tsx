@@ -33,7 +33,7 @@ function useComposeFile(endpointId: string, name: string) {
           responseType: 'text',
           transformResponse: [(data: string) => data],
         })
-        .then((r) => r.data as string),
+        .then((r) => { const d = r.data; return Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : (d?.data ?? d); }) as string),
     enabled: !!endpointId && !!name,
     retry: false,
   });
@@ -42,7 +42,7 @@ function useComposeFile(endpointId: string, name: string) {
 export function StackDetailPage() {
   const { name } = useParams<{ name: string }>();
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
-  const { data: stack, isLoading, error } = useStackDetail(endpointId, name ?? '');
+  const { data: stack = [], isLoading, error } = useStackDetail(endpointId, name ?? '');
   const { data: composeContent } = useComposeFile(endpointId, name ?? '');
   const [copied, setCopied] = useState(false);
   const [editOpen, setEditOpen] = useState(false);

@@ -23,7 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function GitopsDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { data: dep, isLoading } = useGitopsDeployment(id ?? '');
+  const { data: dep = [], isLoading } = useGitopsDeployment(id ?? '');
   const { data: history } = useGitopsDeployHistory(id ?? '');
   const triggerDeploy = useTriggerGitopsDeploy();
   const { toast } = useToast();

@@ -45,7 +45,7 @@ export function ImagesPage() {
   const [pullError, setPullError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: images, isLoading } = useImages(endpointId);
+  const { data: images = [], isLoading } = useImages(endpointId);
   const removeMutation = useRemoveImage(endpointId);
   const pruneMutation = usePruneImages(endpointId);
   const [updateStatus, setUpdateStatus] = useState<Record<string, any>>({});

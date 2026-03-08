@@ -73,8 +73,8 @@ export function NetworksPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [detailNetworkId, setDetailNetworkId] = useState<string | null>(null);
 
-  const { data: networks, isLoading } = useNetworks(endpointId);
-  const { data: networkContainers, isLoading: containersLoading } = useQuery({
+  const { data: networks = [], isLoading } = useNetworks(endpointId);
+  const { data: networkContainers = [], isLoading: containersLoading } = useQuery({
     queryKey: ['network-containers', endpointId, detailNetworkId],
     queryFn: () => api.get(`/endpoints/${endpointId}/networks/${detailNetworkId}/containers`).then((r) => r.data?.data ?? r.data ?? []),
     enabled: !!endpointId && !!detailNetworkId,

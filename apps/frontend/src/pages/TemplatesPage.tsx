@@ -41,7 +41,7 @@ export function TemplatesPage() {
   const [deployName, setDeployName] = useState('');
   const [deploying, setDeploying] = useState(false);
 
-  const { data: templates, isLoading } = useTemplates(activeCategory, search || undefined);
+  const { data: templates = [], isLoading } = useTemplates(activeCategory, search || undefined);
   const { data: categories } = useTemplateCategories();
   const deployTemplate = useDeployTemplate();
   const { toast } = useToast();
