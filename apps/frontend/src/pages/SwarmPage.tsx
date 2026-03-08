@@ -6,8 +6,8 @@ import { SwarmTopology } from '@/components/docker/SwarmTopology';
 
 export function SwarmPage() {
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
-  const { data: swarmInfo, isLoading: swarmLoading } = useSwarmInfo(endpointId);
-  const { data: nodes, isLoading: nodesLoading } = useNodes(endpointId);
+  const { data: swarmInfo = [], isLoading: swarmLoading } = useSwarmInfo(endpointId);
+  const { data: nodes = [], isLoading: nodesLoading } = useNodes(endpointId);
 
   const isLoading = swarmLoading || nodesLoading;
 

@@ -33,12 +33,12 @@ export function RegistriesPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['registries'],
-    queryFn: () => api.get('/registries').then(r => r.data.data),
+    queryFn: () => api.get('/registries').then(r => r.data?.data ?? []),
   });
 
-  const { data: catalog } = useQuery({
+  const { data: catalog = [] } = useQuery({
     queryKey: ['registry-catalog', catalogOpen?._id],
-    queryFn: () => api.get(`/registries/${catalogOpen._id}/catalog`).then(r => r.data.data),
+    queryFn: () => api.get(`/registries/${catalogOpen._id}/catalog`).then(r => r.data?.data ?? []),
     enabled: !!catalogOpen,
   });
 

@@ -45,45 +45,45 @@ export function DashboardPage() {
   const { t } = useTranslation();
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
 
-  const { data: usersData } = useQuery({
+  const { data: usersData = [] } = useQuery({
     queryKey: ['users-count'],
-    queryFn: () => api.get('/users?limit=1').then(r => r.data.data),
+    queryFn: () => api.get('/users?limit=1').then(r => r.data?.data ?? []),
   });
 
-  const { data: endpointsData } = useQuery({
+  const { data: endpointsData = [] } = useQuery({
     queryKey: ['endpoints-list'],
-    queryFn: () => api.get('/endpoints?limit=100').then(r => r.data.data),
+    queryFn: () => api.get('/endpoints?limit=100').then(r => r.data?.data ?? []),
   });
 
-  const { data: swarmInfo } = useQuery({
+  const { data: swarmInfo = [] } = useQuery({
     queryKey: ['swarm-info', endpointId],
-    queryFn: () => api.get(`/endpoints/${endpointId}/swarm/info`).then(r => r.data.data),
+    queryFn: () => api.get(`/endpoints/${endpointId}/swarm/info`).then(r => r.data?.data ?? []),
     enabled: !!endpointId,
     refetchInterval: 15000,
   });
 
-  const { data: nodesData } = useQuery({
+  const { data: nodesData = [] } = useQuery({
     queryKey: ['dash-nodes', endpointId],
     queryFn: () => api.get(`/endpoints/${endpointId}/swarm/nodes`).then(r => r.data.data ?? []),
     enabled: !!endpointId,
     refetchInterval: 15000,
   });
 
-  const { data: servicesData } = useQuery({
+  const { data: servicesData = [] } = useQuery({
     queryKey: ['dash-services', endpointId],
     queryFn: () => api.get(`/endpoints/${endpointId}/swarm/services`).then(r => r.data.data ?? []),
     enabled: !!endpointId,
     refetchInterval: 15000,
   });
 
-  const { data: stacksData } = useQuery({
+  const { data: stacksData = [] } = useQuery({
     queryKey: ['dash-stacks', endpointId],
     queryFn: () => api.get(`/endpoints/${endpointId}/swarm/stacks`).then(r => r.data.data ?? []),
     enabled: !!endpointId,
     refetchInterval: 15000,
   });
 
-  const { data: tasksData } = useQuery({
+  const { data: tasksData = [] } = useQuery({
     queryKey: ['dash-tasks', endpointId],
     queryFn: () => api.get(`/endpoints/${endpointId}/swarm/tasks`).then(r => r.data.data ?? []),
     enabled: !!endpointId,

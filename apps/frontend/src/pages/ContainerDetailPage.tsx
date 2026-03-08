@@ -24,7 +24,7 @@ export function ContainerDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get('tab') ?? 'logs';
 
-  const { data: container, isLoading } = useContainer(endpointId, containerId);
+  const { data: container = [], isLoading } = useContainer(endpointId, containerId);
 
   const name =
     container?.Name?.replace(/^\//, '') ??

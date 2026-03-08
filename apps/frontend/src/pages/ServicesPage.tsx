@@ -53,7 +53,7 @@ function getUpdatedAt(service: any): string {
 
 export function ServicesPage() {
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
-  const { data: services, isLoading } = useServices(endpointId);
+  const { data: services = [], isLoading } = useServices(endpointId);
   const scaleService = useScaleService(endpointId);
   const removeService = useRemoveService(endpointId);
 

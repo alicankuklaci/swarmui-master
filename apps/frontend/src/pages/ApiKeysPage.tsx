@@ -52,7 +52,7 @@ export function ApiKeysPage() {
 
   const createMutation = useMutation({
     mutationFn: (data: { name: string; scope: ApiKeyScope[]; expiresAt?: string | null }) =>
-      api.post('/api-keys', data).then((r) => r.data),
+      api.post('/api-keys', data).then((r) => Array.isArray(r.data) ? r.data : Array.isArray(r.data?.data) ? r.data.data : r.data?.data ?? r.data),
     onSuccess: (data) => {
       setCreatedKey(data.key);
       queryClient.invalidateQueries({ queryKey: ['api-keys'] });

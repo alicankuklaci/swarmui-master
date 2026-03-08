@@ -33,15 +33,15 @@ export function GitopsPage() {
   const [form, setForm] = useState(emptyForm);
   const [credForm, setCredForm] = useState(emptyCredForm);
 
-  const { data: deployments, isLoading } = useQuery({
+  const { data: deployments = [], isLoading } = useQuery({
     queryKey: ['gitops'],
-    queryFn: () => api.get('/gitops').then(r => r.data.data),
+    queryFn: () => api.get('/gitops').then(r => r.data?.data ?? []),
     refetchInterval: 10000,
   });
 
-  const { data: credentials } = useQuery({
+  const { data: credentials = [] } = useQuery({
     queryKey: ['git-credentials'],
-    queryFn: () => api.get('/gitops/credentials/list').then(r => r.data.data),
+    queryFn: () => api.get('/gitops/credentials/list').then(r => r.data?.data ?? []),
   });
 
   const createMutation = useMutation({

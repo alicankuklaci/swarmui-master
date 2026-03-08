@@ -14,7 +14,7 @@ export function AppShell() {
 
   const { data: endpoints } = useQuery({
     queryKey: ['endpoints-auto'],
-    queryFn: () => api.get('/endpoints', { params: { limit: 1 } }).then((r) => r.data),
+    queryFn: () => api.get('/endpoints', { params: { limit: 1 } }).then((r) => Array.isArray(r.data) ? r.data : Array.isArray(r.data?.data) ? r.data.data : r.data?.data ?? r.data),
   });
 
   useEffect(() => {
