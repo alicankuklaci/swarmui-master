@@ -28,6 +28,7 @@ import { GitopsModule } from './modules/gitops/gitops.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SecurityModule } from './modules/security/security.module';
+import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { HealthModule } from './modules/health/health.module';
 import { EventsModule } from './modules/events/events.module';
 import { PrometheusModule } from '@willsoto/nestjs-prometheus';
@@ -81,6 +82,7 @@ import { PrometheusModule } from '@willsoto/nestjs-prometheus';
     BackupModule,
     NotificationsModule,
     SecurityModule,
+    ApiKeysModule,
     HealthModule,
     EventsModule,
     PrometheusModule.register({ path: '/metrics' }),

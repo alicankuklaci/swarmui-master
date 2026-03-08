@@ -32,6 +32,7 @@ import { BackupPage } from '@/pages/BackupPage';
 import { SecurityPage } from '@/pages/SecurityPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { TwoFactorPage } from '@/pages/TwoFactorPage';
+import { ApiKeysPage } from '@/pages/ApiKeysPage';
 import { EventsPage } from '@/pages/EventsPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
@@ -103,6 +104,7 @@ export default function App() {
           {/* Enterprise */}
           <Route path="backup" element={<ErrorBoundary><BackupPage /></ErrorBoundary>} />
           <Route path="security" element={<ErrorBoundary><SecurityPage /></ErrorBoundary>} />
+          <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="2fa" element={<TwoFactorPage />} />
           {/* Admin */}
