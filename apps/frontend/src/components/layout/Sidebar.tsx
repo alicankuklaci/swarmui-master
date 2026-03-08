@@ -52,6 +52,7 @@ const navSections = [
     items: [
       { to: '/backup', icon: HardDriveDownload, label: 'Backup' },
       { to: '/security', icon: Lock, label: 'Security' },
+      { to: '/api-keys', icon: KeyRound, label: 'API Keys' },
       { to: '/notifications', icon: Bell, label: 'Notifications' },
     ],
   },
