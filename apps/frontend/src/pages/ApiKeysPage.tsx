@@ -47,7 +47,7 @@ export function ApiKeysPage() {
 
   const { data: keys = [], isLoading } = useQuery<ApiKeyItem[]>({
     queryKey: ['api-keys'],
-    queryFn: () => api.get('/api-keys').then((r) => r.data),
+    queryFn: () => api.get('/api-keys').then((r) => Array.isArray(r.data) ? r.data : (r.data?.data ?? [])),
   });
 
   const createMutation = useMutation({
