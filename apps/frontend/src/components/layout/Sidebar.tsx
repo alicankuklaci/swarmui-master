@@ -6,64 +6,65 @@ import {
   LayoutGrid, Package, GitMerge, HardDriveDownload, Lock, KeyRound, Bell,
   Radio,
  ClipboardList,} from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/stores/app.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { cn } from '@/lib/utils';
 
 const navSections = [
   {
-    title: null as string | null,
+    titleKey: null as string | null,
     items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { to: '/endpoints', icon: Server, label: 'Endpoints' },
+      { to: '/dashboard', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+      { to: '/endpoints', icon: Server, labelKey: 'nav.endpoints' },
     ],
   },
   {
-    title: 'Docker',
+    titleKey: 'nav.docker',
     items: [
-      { to: '/containers', icon: Container, label: 'Containers' },
-      { to: '/images', icon: Image, label: 'Images' },
-      { to: '/networks', icon: Network, label: 'Networks' },
-      { to: '/volumes', icon: HardDrive, label: 'Volumes' },
-      { to: '/events', icon: Radio, label: 'Events' },
+      { to: '/containers', icon: Container, labelKey: 'nav.containers' },
+      { to: '/images', icon: Image, labelKey: 'nav.images' },
+      { to: '/networks', icon: Network, labelKey: 'nav.networks' },
+      { to: '/volumes', icon: HardDrive, labelKey: 'nav.volumes' },
+      { to: '/events', icon: Radio, labelKey: 'nav.events' },
     ],
   },
   {
-    title: 'Swarm',
+    titleKey: 'nav.swarm',
     items: [
-      { to: '/swarm', icon: Grid3X3, label: 'Swarm' },
-      { to: '/nodes', icon: Server, label: 'Nodes' },
-      { to: '/visualizer', icon: LayoutDashboard, label: 'Cluster Visualizer' },
-      { to: '/audit-log', icon: ClipboardList, label: 'Audit Log' },
-      { to: '/services', icon: Layers, label: 'Services' },
-      { to: '/stacks', icon: GitBranch, label: 'Stacks' },
+      { to: '/swarm', icon: Grid3X3, labelKey: 'nav.swarm' },
+      { to: '/nodes', icon: Server, labelKey: 'nav.nodes' },
+      { to: '/visualizer', icon: LayoutDashboard, labelKey: 'nav.clusterVisualizer' },
+      { to: '/audit-log', icon: ClipboardList, labelKey: 'nav.auditLog' },
+      { to: '/services', icon: Layers, labelKey: 'nav.services' },
+      { to: '/stacks', icon: GitBranch, labelKey: 'nav.stacks' },
     ],
   },
   {
-    title: 'Platform',
+    titleKey: 'nav.platform',
     items: [
-      { to: '/registries', icon: Package, label: 'Registries' },
-      { to: '/templates', icon: LayoutGrid, label: 'Templates' },
-      { to: '/gitops', icon: GitMerge, label: 'GitOps' },
+      { to: '/registries', icon: Package, labelKey: 'nav.registries' },
+      { to: '/templates', icon: LayoutGrid, labelKey: 'nav.templates' },
+      { to: '/gitops', icon: GitMerge, labelKey: 'nav.gitops' },
     ],
   },
   {
-    title: 'Enterprise',
+    titleKey: 'nav.enterprise',
     items: [
-      { to: '/backup', icon: HardDriveDownload, label: 'Backup' },
-      { to: '/security', icon: Lock, label: 'Security' },
-      { to: '/notifications', icon: Bell, label: 'Notifications' },
+      { to: '/backup', icon: HardDriveDownload, labelKey: 'nav.backup' },
+      { to: '/security', icon: Lock, labelKey: 'nav.security' },
+      { to: '/notifications', icon: Bell, labelKey: 'nav.notifications' },
     ],
   },
   {
-    title: 'Admin',
+    titleKey: 'nav.admin',
     items: [
-      { to: '/users', icon: Users, label: 'Users' },
-      { to: '/teams', icon: UsersRound, label: 'Teams' },
-      { to: '/roles', icon: Shield, label: 'Roles' },
-      { to: '/activity-logs', icon: Activity, label: 'Activity Logs' },
-      { to: '/auth-logs', icon: KeyRound, label: 'Auth Logs' },
-      { to: '/settings', icon: Settings, label: 'Settings' },
+      { to: '/users', icon: Users, labelKey: 'nav.users' },
+      { to: '/teams', icon: UsersRound, labelKey: 'nav.teams' },
+      { to: '/roles', icon: Shield, labelKey: 'nav.roles' },
+      { to: '/activity-logs', icon: Activity, labelKey: 'nav.activityLogs' },
+      { to: '/auth-logs', icon: KeyRound, labelKey: 'nav.authLogs' },
+      { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
     ],
   },
 ];
@@ -72,6 +73,7 @@ export function Sidebar() {
   const { sidebarOpen, toggleSidebar } = useAppStore();
   const userRole = useAuthStore((s) => s.user?.role);
   const isAdmin = userRole === 'admin';
+  const { t } = useTranslation();
 
   return (
     <aside
@@ -102,14 +104,14 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 py-2 overflow-y-auto">
-        {navSections.filter((section) => section.title !== 'Admin' || isAdmin).map((section, si) => (
+        {navSections.filter((section) => section.titleKey !== 'nav.admin' || isAdmin).map((section, si) => (
           <div key={si} className="mb-1">
-            {section.title && sidebarOpen && (
+            {section.titleKey && sidebarOpen && (
               <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                {section.title}
+                {t(section.titleKey)}
               </div>
             )}
-            {section.title && !sidebarOpen && (
+            {section.titleKey && !sidebarOpen && (
               <div className="my-1 mx-3 border-t border-gray-700" />
             )}
             {section.items.map((item) => (
@@ -125,7 +127,7 @@ export function Sidebar() {
                 }
               >
                 <item.icon className="w-5 h-5 flex-shrink-0" />
-                {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+                {sidebarOpen && <span className="text-sm font-medium">{t(item.labelKey)}</span>}
               </NavLink>
             ))}
           </div>
