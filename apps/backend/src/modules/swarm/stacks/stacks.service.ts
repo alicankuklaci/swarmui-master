@@ -203,10 +203,65 @@ export class StacksService {
     return { message: `Stack ${name} removed` };
   }
 
-  async getComposeFile(name: string): Promise<string> {
+  async getComposeFile(name: string, endpointId?: string): Promise<string> {
     const doc = await this.stackFileModel.findOne({ name });
-    if (!doc) throw new NotFoundException(`Compose file for stack ${name} not found`);
-    return doc.content;
+    if (doc) return doc.content;
+
+    // Fallback: reconstruct compose from live Docker services
+    const docker = this.getDocker(endpointId);
+    const services = await this.listServicesWithStatus(docker, {
+      label: [`com.docker.stack.namespace=${name}`],
+    });
+
+    if (services.length === 0) {
+      throw new NotFoundException(`Compose file for stack ${name} not found`);
+    }
+
+    const composeDef: Record<string, any> = {};
+    for (const svc of services) {
+      const spec = svc.Spec ?? {};
+      const containerSpec = spec.TaskTemplate?.ContainerSpec ?? {};
+      const svcName = (spec.Name ?? '').replace(`${name}_`, '') || spec.Name;
+
+      const serviceDef: Record<string, any> = {
+        image: containerSpec.Image?.split('@')[0] ?? 'unknown',
+      };
+
+      // Ports
+      const ports = svc.Endpoint?.Ports ?? [];
+      if (ports.length > 0) {
+        serviceDef.ports = ports.map(
+          (p: any) => `${p.PublishedPort}:${p.TargetPort}/${p.Protocol ?? 'tcp'}`,
+        );
+      }
+
+      // Environment
+      const env = containerSpec.Env;
+      if (env && env.length > 0) {
+        serviceDef.environment = env;
+      }
+
+      // Volumes / Mounts
+      const mounts = containerSpec.Mounts ?? [];
+      if (mounts.length > 0) {
+        serviceDef.volumes = mounts.map(
+          (m: any) => `${m.Source}:${m.Target}${m.ReadOnly ? ':ro' : ''}`,
+        );
+      }
+
+      // Replicas
+      const replicas = spec.Mode?.Replicated?.Replicas;
+      if (replicas !== undefined && replicas !== 1) {
+        serviceDef.deploy = { replicas };
+      }
+
+      composeDef[svcName] = serviceDef;
+    }
+
+    return yaml.dump(
+      { version: '3.8', services: composeDef },
+      { lineWidth: 120, noRefs: true },
+    );
   }
 
   private parseComposeFile(content: string): any {

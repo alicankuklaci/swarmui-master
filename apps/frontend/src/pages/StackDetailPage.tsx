@@ -67,8 +67,10 @@ export function StackDetailPage() {
     editMutation.mutate(editContent);
   }
 
+  const defaultCompose = 'version: "3.8"\nservices:\n  # Add your services here\n';
+
   function openEdit() {
-    setEditContent(composeContent || '');
+    setEditContent(composeContent || defaultCompose);
     setEditError('');
     setEditOpen(true);
   }
