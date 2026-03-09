@@ -7,3 +7,23 @@ build/
 .turbo/
 .DS_Store
 coverage/
+
+# Temp / scratch files
+*.txt
+PLAN.md
+prompt.txt
+fix-task*.txt
+agent-task*.txt
+task*.txt
+*-task.txt
+*-prompt.txt
+TODO*.md
+NOTES*.md
+SCRATCH*.md
+
+# AI/agent artifacts
+.claude/
+.aider*
+.cursor/
+copilot-*
+ai-*
