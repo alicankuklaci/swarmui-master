@@ -229,3 +229,15 @@ MIT License — see [LICENSE](LICENSE) for details.
 <p align="center">
   Made with ❤️ &nbsp;—&nbsp; <a href="https://github.com/alicankuklaci/swarmui-master">⭐ Star this repo</a> if you find it useful!
 </p>
+
+---
+
+## ☕ Support
+
+If you find this project useful, consider supporting its development:
+
+<p align="center">
+  <b>💜 USDT (TRC-20)</b><br/>
+  <code>TKpa9EFYbm1ppQoeemrqH28NJdBeTUSjfC</code>
+</p>
+
