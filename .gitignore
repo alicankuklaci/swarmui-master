@@ -27,3 +27,6 @@ SCRATCH*.md
 .cursor/
 copilot-*
 ai-*
+.env.prod
+TASK.md
+*.md.bak
