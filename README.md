@@ -44,7 +44,7 @@
 ### Deploy with Docker Stack
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/swarmui-master.git
+git clone https://github.com/alicankuklaci/swarmui-master.git
 cd swarmui-master
 docker stack deploy -c docker-compose.yml swarmui-master
 ```
@@ -227,5 +227,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  Made with ❤️ &nbsp;—&nbsp; <a href="https://github.com/YOUR_USERNAME/swarmui-master">⭐ Star this repo</a> if you find it useful!
+  Made with ❤️ &nbsp;—&nbsp; <a href="https://github.com/alicankuklaci/swarmui-master">⭐ Star this repo</a> if you find it useful!
 </p>
