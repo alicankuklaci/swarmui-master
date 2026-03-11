@@ -40,7 +40,7 @@ export class MigrationService implements OnApplicationBootstrap {
       .readdirSync(migrationsDir)
       .filter(
         (f) =>
-          (f.endsWith('.js') || f.endsWith('.ts')) &&
+          (f.endsWith('.js') && !f.endsWith('.d.ts')) &&
           !f.includes('template') &&
           !f.includes('runner') &&
           !f.includes('migration.service') &&
