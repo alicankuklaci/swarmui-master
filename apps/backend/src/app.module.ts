@@ -30,6 +30,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { SecurityModule } from './modules/security/security.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { HealthModule } from './modules/health/health.module';
+import { MigrationModule } from './migrations/migration.module';
 import { EventsModule } from './modules/events/events.module';
 import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 
@@ -84,6 +85,7 @@ import { PrometheusModule } from '@willsoto/nestjs-prometheus';
     SecurityModule,
     ApiKeysModule,
     HealthModule,
+    MigrationModule,
     EventsModule,
     PrometheusModule.register({ path: '/metrics' }),
   ],
