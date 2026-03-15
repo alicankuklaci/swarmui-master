@@ -69,6 +69,23 @@ services:
     deploy:
       replicas: 1
 
+  galop-web:
+    image: alicankuklaci/galop-web:latest
+    ports:
+      - "1521:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://212.83.131.111:1520
+    networks:
+      - swarmui-master-net
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+
+
 volumes:
   mongo_data:
   redis_data:
@@ -76,4 +93,3 @@ volumes:
 networks:
   swarmui-master-net:
     driver: overlay
-

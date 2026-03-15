@@ -5,6 +5,7 @@ import Dockerode from 'dockerode';
 import { Template, TemplateDocument } from './schemas/template.schema';
 import { DeployTemplateDto } from './dto/template.dto';
 import { DockerService } from '../../docker/docker.service';
+import { StacksService } from '../swarm/stacks/stacks.service';
 
 @Injectable()
 export class TemplateDeployService {
@@ -13,6 +14,7 @@ export class TemplateDeployService {
   constructor(
     @InjectModel(Template.name) private readonly templateModel: Model<TemplateDocument>,
     private readonly dockerService: DockerService,
+    private readonly stacksService: StacksService,
   ) {}
 
   async deploy(templateId: string, dto: DeployTemplateDto) {
@@ -27,7 +29,7 @@ export class TemplateDeployService {
     } else if (template.type === 'swarm-service') {
       return this.deployService(docker, template, dto.name, envValues);
     } else if (template.type === 'stack') {
-      return this.deployStack(docker, template, dto.name, envValues);
+      return this.deployStack(docker, template, dto.name, envValues, dto.endpointId);
     }
 
     throw new BadRequestException(`Unknown template type: ${template.type}`);
@@ -105,21 +107,35 @@ export class TemplateDeployService {
     template: any,
     name: string | undefined,
     envValues: Record<string, string>,
+    endpointId?: string,
   ) {
-    // Stack deployment is handled via CLI; here we return compose content for use
-    const stackName = name ?? `${template.title.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+    const rawName = name ?? template.title;
+    const stackName = rawName
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')   // diacritics
+      .replace(/[^a-z0-9]+/g, '-')         // non-alphanumeric → dash
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .substring(0, 63) || 'stack';
     let compose = template.composeContent ?? '';
 
-    // Substitute env vars
-    for (const [key, value] of Object.entries(envValues)) {
-      compose = compose.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
+    // Substitute env vars: ${VAR:-default} ve ${VAR}
+    for (const envDef of (template.env ?? [])) {
+      const value = envValues[envDef.name] ?? envDef.default ?? '';
+      compose = compose
+        .replace(new RegExp('\\$\\{' + envDef.name + ':-[^}]*\\}', 'g'), value)
+        .replace(new RegExp('\\$\\{' + envDef.name + '\\}', 'g'), value);
     }
 
-    return {
-      message: 'Stack compose content ready',
-      stackName,
-      composeContent: compose,
-    };
+    this.logger.log(`Deploying stack template: ${stackName}`);
+    try {
+      const result = await this.stacksService.deploy(stackName, compose, endpointId);
+      return { message: 'Stack deployed successfully', stackName, services: result };
+    } catch (err: any) {
+      this.logger.error(`Stack template deploy failed: ${err.message}`);
+      throw new BadRequestException(`Stack deploy failed: ${err.message}`);
+    }
   }
 
   private buildEnv(envDefs: any[], envValues: Record<string, string>): string[] {

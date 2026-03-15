@@ -135,6 +135,18 @@ export function Sidebar() {
         ))}
       </nav>
 
+      {/* Version bilgisi */}
+      {sidebarOpen && (
+        <div className="px-4 pb-3 pt-2 border-t border-gray-700">
+          <p className="text-xs text-gray-500 font-mono">
+            v{import.meta.env.VITE_BUILD_VERSION ?? 'dev'}
+          </p>
+          <p className="text-xs text-gray-600 font-mono">
+            {import.meta.env.VITE_BUILD_TIME ?? ''}
+          </p>
+        </div>
+      )}
+
       {!sidebarOpen && (
         <div className="pb-4 flex justify-center">
           <button onClick={toggleSidebar} className="p-2 rounded hover:bg-gray-700 transition-colors">
