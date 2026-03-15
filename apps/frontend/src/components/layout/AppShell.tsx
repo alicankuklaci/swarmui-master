@@ -18,8 +18,10 @@ export function AppShell() {
   });
 
   useEffect(() => {
-    if (!selectedEndpointId && endpoints?.data?.data?.length > 0) {
-      setSelectedEndpoint(endpoints.data.data[0]._id);
+    if (!selectedEndpointId && Array.isArray(endpoints) && endpoints.length > 0) {
+      const ep = endpoints[0];
+      const id = ep.id ?? ep._id ?? ep.ID ?? String(ep);
+      if (id) setSelectedEndpoint(id);
     }
   }, [endpoints, selectedEndpointId, setSelectedEndpoint]);
 

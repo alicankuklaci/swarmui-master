@@ -95,12 +95,6 @@ export function LoginPage() {
                 {loginMutation.isPending ? t('auth.signingIn') : t('auth.signIn')}
               </Button>
             </form>
-
-            <div className="mt-4 p-3 bg-gray-700/50 rounded-md">
-              <p className="text-xs text-gray-400 text-center">
-                Default credentials: <strong className="text-gray-200">admin</strong> / <strong className="text-gray-200">admin123!</strong>
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>

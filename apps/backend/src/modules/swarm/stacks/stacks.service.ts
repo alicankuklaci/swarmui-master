@@ -130,8 +130,9 @@ export class StacksService {
 
       // Create networks first
       if (compose.networks) {
-        for (const [networkName] of Object.entries(compose.networks || {})) {
+        for (const [networkName, networkConfig] of Object.entries(compose.networks || {})) {
           const fullNetworkName = `${name}_${networkName}`;
+          const netCfg: any = (networkConfig as any) || {};
           try {
             const existing = await docker.listNetworks({
               filters: JSON.stringify({ name: [fullNetworkName] }),
@@ -139,9 +140,39 @@ export class StacksService {
             if (existing.length === 0) {
               await docker.createNetwork({
                 Name: fullNetworkName,
-                Driver: 'overlay',
-                Labels: { 'com.docker.stack.namespace': name },
+                Driver: netCfg.driver || 'overlay',
+                Attachable: netCfg.attachable === true,
+                Internal: netCfg.internal === true,
+                EnableIPv6: netCfg.enable_ipv6 === true,
+                Labels: {
+                  'com.docker.stack.namespace': name,
+                  ...(netCfg.labels || {}),
+                },
+                Options: netCfg.driver_opts || {},
+                ...(netCfg.ipam ? {
+                  IPAM: {
+                    Driver: netCfg.ipam.driver || 'default',
+                    Config: (netCfg.ipam.config || []).map((cfg: any) => ({
+                      Subnet: cfg.subnet,
+                      Gateway: cfg.gateway,
+                    })),
+                  },
+                } : {}),
               });
+            } else {
+              // Network var ama attachable değişmiş olabilir — update et
+              const net = docker.getNetwork(existing[0].Id!);
+              const info = await net.inspect();
+              if (netCfg.attachable === true && !info.Attachable) {
+                this.logger.warn(`Network ${fullNetworkName} exists but not attachable — recreating`);
+                await net.remove().catch(() => {});
+                await docker.createNetwork({
+                  Name: fullNetworkName,
+                  Driver: netCfg.driver || 'overlay',
+                  Attachable: true,
+                  Labels: { 'com.docker.stack.namespace': name },
+                });
+              }
             }
           } catch (err: any) {
             this.logger.warn(`Failed to create network ${fullNetworkName}: ${err.message}`);
@@ -285,46 +316,284 @@ export class StacksService {
     }
   }
 
+private parseDuration(d: string): number {
+    if (!d) return 5000000000;
+    const s = String(d).trim();
+    const n = parseFloat(s);
+    if (s.endsWith('ns')) return n;
+    if (s.endsWith('us') || s.endsWith('µs')) return n * 1_000;
+    if (s.endsWith('ms')) return n * 1_000_000;
+    if (s.endsWith('m'))  return n * 60_000_000_000;
+    if (s.endsWith('h'))  return n * 3_600_000_000_000;
+    // default: seconds
+    return n * 1_000_000_000;
+  }
+
+  private parseMemory(m: string | number): number {
+    if (typeof m === 'number') return m;
+    const s = String(m).trim().toLowerCase();
+    const n = parseFloat(s);
+    if (s.endsWith('g') || s.endsWith('gb')) return Math.round(n * 1024 * 1024 * 1024);
+    if (s.endsWith('m') || s.endsWith('mb')) return Math.round(n * 1024 * 1024);
+    if (s.endsWith('k') || s.endsWith('kb')) return Math.round(n * 1024);
+    return n;
+  }
+
+  private parsePorts(ports: any[]): any[] {
+    const result: any[] = [];
+    for (const p of ports || []) {
+      if (typeof p === 'string' || typeof p === 'number') {
+        const str = String(p);
+        // format: [host:]container[/proto]
+        const protoSplit = str.split('/');
+        const proto = (protoSplit[1] || 'tcp').toLowerCase();
+        const parts = protoSplit[0].split(':');
+        const target = parseInt(parts[parts.length - 1]);
+        const published = parts.length > 1 ? parseInt(parts[parts.length - 2]) : 0;
+        if (target) result.push({ Protocol: proto, TargetPort: target, PublishedPort: published || undefined });
+      } else if (typeof p === 'object') {
+        // long format: { target, published, protocol, mode }
+        result.push({
+          Protocol: (p.protocol || 'tcp').toLowerCase(),
+          TargetPort: parseInt(p.target),
+          PublishedPort: p.published ? parseInt(p.published) : undefined,
+          PublishMode: p.mode || 'ingress',
+        });
+      }
+    }
+    return result;
+  }
+
   private buildServiceSpec(stackName: string, serviceName: string, config: any, compose: any): any {
     const fullName = `${stackName}_${serviceName}`;
+    const deploy = config.deploy || {};
 
-    return {
+    // ── ContainerSpec ────────────────────────────────────────────────
+    const containerSpec: any = {
+      Image: config.image || 'alpine',
+      Labels: {
+        'com.docker.stack.namespace': stackName,
+        ...(config.labels
+          ? Array.isArray(config.labels)
+            ? Object.fromEntries(config.labels.map((l: string) => l.split('=')))
+            : config.labels
+          : {}),
+      },
+      Env: Array.isArray(config.environment)
+        ? config.environment
+        : Object.entries(config.environment || {}).map(([k, v]) => `${k}=${v}`),
+    };
+
+    if (config.command !== undefined)
+      containerSpec.Args = Array.isArray(config.command) ? config.command.map(String) : String(config.command).trim().split(/\s+/);
+
+    if (config.entrypoint !== undefined)
+      containerSpec.Command = Array.isArray(config.entrypoint) ? config.entrypoint.map(String) : String(config.entrypoint).trim().split(/\s+/);
+
+    if (config.user)        containerSpec.User    = String(config.user);
+    if (config.working_dir) containerSpec.Dir     = String(config.working_dir);
+    if (config.hostname)    containerSpec.Hostname = String(config.hostname);
+    if (config.stop_grace_period) containerSpec.StopGracePeriod = this.parseDuration(config.stop_grace_period);
+    if (config.stop_signal) containerSpec.StopSignal = String(config.stop_signal);
+    if (config.read_only)   containerSpec.ReadOnly = true;
+    if (config.init)        containerSpec.Init = true;
+    if (config.tty)         containerSpec.TTY = true;
+    if (config.stdin_open)  containerSpec.OpenStdin = true;
+
+    // Volumes
+    if (config.volumes?.length) {
+      containerSpec.Mounts = config.volumes.map((v: any) => {
+        if (typeof v === 'string') {
+          const parts = v.split(':');
+          const source = parts.length > 1 ? parts[0] : undefined;
+          const target = parts.length > 1 ? parts[1] : parts[0];
+          const readonly = parts[2] === 'ro';
+          const isNamed = source && !source.startsWith('/') && !source.startsWith('.');
+          return {
+            Type: isNamed ? 'volume' : source ? 'bind' : 'volume',
+            Source: source || '',
+            Target: target.split(':')[0],
+            ReadOnly: readonly,
+          };
+        }
+        return {
+          Type: v.type || 'volume',
+          Source: v.source || '',
+          Target: v.target,
+          ReadOnly: v.read_only || false,
+          ...(v.bind?.propagation ? { BindOptions: { Propagation: v.bind.propagation } } : {}),
+          ...(v.volume?.nocopy ? { VolumeOptions: { NoCopy: true } } : {}),
+          ...(v.tmpfs?.size ? { TmpfsOptions: { SizeBytes: this.parseMemory(v.tmpfs.size) } } : {}),
+        };
+      });
+    }
+
+    // Capabilities
+    if (config.cap_add?.length)  containerSpec.CapabilityAdd  = config.cap_add;
+    if (config.cap_drop?.length) containerSpec.CapabilityDrop = config.cap_drop;
+
+    // Security opt
+    if (config.security_opt?.length) containerSpec.SecurityOpt = config.security_opt;
+
+    // Devices
+    if (config.devices?.length) containerSpec.Devices = config.devices;
+
+    // ulimits
+    if (config.ulimits) {
+      containerSpec.Ulimits = Object.entries(config.ulimits).map(([name, val]: [string, any]) => ({
+        Name: name,
+        Soft: typeof val === 'object' ? val.soft : val,
+        Hard: typeof val === 'object' ? val.hard : val,
+      }));
+    }
+
+    // Healthcheck
+    if (config.healthcheck && !config.healthcheck.disable) {
+      const hc = config.healthcheck;
+      containerSpec.Healthcheck = {
+        ...(hc.test ? { Test: Array.isArray(hc.test) ? hc.test : ['CMD-SHELL', hc.test] } : {}),
+        ...(hc.interval  ? { Interval:    this.parseDuration(hc.interval)  } : {}),
+        ...(hc.timeout   ? { Timeout:     this.parseDuration(hc.timeout)   } : {}),
+        ...(hc.start_period ? { StartPeriod: this.parseDuration(hc.start_period) } : {}),
+        ...(hc.retries   ? { Retries:     hc.retries     } : {}),
+      };
+    } else if (config.healthcheck?.disable) {
+      containerSpec.Healthcheck = { Test: ['NONE'] };
+    }
+
+    // DNS
+    if (config.dns)        containerSpec.DNSConfig = { Nameservers: Array.isArray(config.dns) ? config.dns : [config.dns] };
+    if (config.dns_search) containerSpec.DNSConfig = { ...containerSpec.DNSConfig, Search: Array.isArray(config.dns_search) ? config.dns_search : [config.dns_search] };
+
+    // Extra hosts
+    if (config.extra_hosts?.length)
+      containerSpec.Hosts = (Array.isArray(config.extra_hosts) ? config.extra_hosts : Object.entries(config.extra_hosts).map(([h, ip]) => `${ip} ${h}`));
+
+    // Logging
+    if (config.logging) {
+      containerSpec.LogDriver = {
+        Name: config.logging.driver || 'json-file',
+        Options: config.logging.options || {},
+      };
+    }
+
+    // Secrets
+    if (config.secrets?.length) {
+      containerSpec.Secrets = config.secrets.map((s: any) => typeof s === 'string'
+        ? { SecretName: s, File: { Name: `/run/secrets/${s}`, UID: '0', GID: '0', Mode: 0o444 } }
+        : { SecretName: s.source || s.secret, File: { Name: s.target || `/run/secrets/${s.source || s.secret}`, UID: String(s.uid || 0), GID: String(s.gid || 0), Mode: s.mode || 0o444 } }
+      );
+    }
+
+    // Configs
+    if (config.configs?.length) {
+      containerSpec.Configs = config.configs.map((c: any) => typeof c === 'string'
+        ? { ConfigName: c, File: { Name: `/${c}`, UID: '0', GID: '0', Mode: 0o444 } }
+        : { ConfigName: c.source || c.config, File: { Name: c.target || `/${c.source}`, UID: String(c.uid || 0), GID: String(c.gid || 0), Mode: c.mode || 0o444 } }
+      );
+    }
+
+    // ── Resources ────────────────────────────────────────────────────
+    const resources: any = {};
+    if (deploy.resources?.limits) {
+      resources.Limits = {};
+      if (deploy.resources.limits.cpus)   resources.Limits.NanoCPUs  = Math.round(parseFloat(deploy.resources.limits.cpus) * 1e9);
+      if (deploy.resources.limits.memory) resources.Limits.MemoryBytes = this.parseMemory(deploy.resources.limits.memory);
+    }
+    if (deploy.resources?.reservations) {
+      resources.Reservations = {};
+      if (deploy.resources.reservations.cpus)   resources.Reservations.NanoCPUs    = Math.round(parseFloat(deploy.resources.reservations.cpus) * 1e9);
+      if (deploy.resources.reservations.memory) resources.Reservations.MemoryBytes = this.parseMemory(deploy.resources.reservations.memory);
+    }
+
+    // ── RestartPolicy ────────────────────────────────────────────────
+    const rp = deploy.restart_policy || {};
+    const restartPolicy: any = {
+      Condition: rp.condition || 'on-failure',
+      Delay:       rp.delay       ? this.parseDuration(rp.delay)       : 5_000_000_000,
+      MaxAttempts: rp.max_attempts ?? 3,
+      Window:      rp.window      ? this.parseDuration(rp.window)      : 0,
+    };
+
+    // ── Placement ────────────────────────────────────────────────────
+    const placement: any = {};
+    if (deploy.placement?.constraints?.length)
+      placement.Constraints = Array.isArray(deploy.placement.constraints)
+        ? deploy.placement.constraints : [deploy.placement.constraints];
+    if (deploy.placement?.preferences?.length)
+      placement.Preferences = deploy.placement.preferences.map((p: any) => ({ Spread: { SpreadDescriptor: p.spread } }));
+    if (deploy.placement?.max_replicas_per_node)
+      placement.MaxReplicas = deploy.placement.max_replicas_per_node;
+
+    // ── UpdateConfig ─────────────────────────────────────────────────
+    const updateConfig: any = {};
+    if (deploy.update_config) {
+      const uc = deploy.update_config;
+      if (uc.parallelism !== undefined) updateConfig.Parallelism  = uc.parallelism;
+      if (uc.delay)       updateConfig.Delay       = this.parseDuration(uc.delay);
+      if (uc.order)       updateConfig.Order       = uc.order;
+      if (uc.failure_action) updateConfig.FailureAction = uc.failure_action;
+      if (uc.monitor)     updateConfig.Monitor     = this.parseDuration(uc.monitor);
+      if (uc.max_failure_ratio !== undefined) updateConfig.MaxFailureRatio = uc.max_failure_ratio;
+    }
+
+    // ── RollbackConfig ───────────────────────────────────────────────
+    const rollbackConfig: any = {};
+    if (deploy.rollback_config) {
+      const rc = deploy.rollback_config;
+      if (rc.parallelism !== undefined) rollbackConfig.Parallelism = rc.parallelism;
+      if (rc.delay)       rollbackConfig.Delay       = this.parseDuration(rc.delay);
+      if (rc.order)       rollbackConfig.Order       = rc.order;
+      if (rc.failure_action) rollbackConfig.FailureAction = rc.failure_action;
+      if (rc.monitor)     rollbackConfig.Monitor     = this.parseDuration(rc.monitor);
+      if (rc.max_failure_ratio !== undefined) rollbackConfig.MaxFailureRatio = rc.max_failure_ratio;
+    }
+
+    // ── Networks ─────────────────────────────────────────────────────
+    const networks = (Array.isArray(config.networks) ? config.networks : Object.keys(config.networks || {}))
+      .map((n: any) => {
+        const netName = typeof n === 'string' ? n : Object.keys(n)[0];
+        const netCfg  = typeof n === 'object' ? Object.values(n)[0] as any : config.networks?.[netName] || {};
+        const target  = `${stackName}_${netName}`;
+        const net: any = { Target: target };
+        if (netCfg?.aliases?.length) net.Aliases = netCfg.aliases;
+        return net;
+      });
+
+    // ── Ports ────────────────────────────────────────────────────────
+    const ports = this.parsePorts(config.ports || []);
+
+    // ── Mode ─────────────────────────────────────────────────────────
+    const mode = deploy.mode === 'global'
+      ? { Global: {} }
+      : { Replicated: { Replicas: deploy.replicas ?? 1 } };
+
+    // ── Assemble ─────────────────────────────────────────────────────
+    const spec: any = {
       Name: fullName,
       Labels: {
         'com.docker.stack.namespace': stackName,
         'com.docker.stack.image': config.image || '',
       },
       TaskTemplate: {
-        ContainerSpec: {
-          Image: config.image || 'alpine',
-          Labels: { 'com.docker.stack.namespace': stackName },
-          Env: Array.isArray(config.environment)
-            ? config.environment
-            : Object.entries(config.environment || {}).map(([k, v]) => `${k}=${v}`),
-        },
-        RestartPolicy: { Condition: 'on-failure', Delay: 5000000000, MaxAttempts: 3 },
+        ContainerSpec: containerSpec,
+        RestartPolicy: restartPolicy,
+        ...(Object.keys(resources).length ? { Resources: resources } : {}),
+        ...(Object.keys(placement).length ? { Placement: placement } : {}),
+        Runtime: 'container',
       },
-      Mode: {
-        Replicated: {
-          Replicas: config.deploy?.replicas || 1,
-        },
-      },
-      Networks: (config.networks || []).map((n: string) => ({ Target: `${stackName}_${n}` })),
-      EndpointSpec: {
-        Ports: (config.ports || []).map((p: string) => {
-          const parts = String(p).split(':');
-          return {
-            Protocol: 'tcp',
-            PublishedPort: parseInt(parts[0]) || 0,
-            TargetPort: parseInt(parts[1] || parts[0]),
-          };
-        }),
-      },
+      Mode: mode,
+      Networks: networks,
+      EndpointSpec: { Ports: ports },
+      ...(Object.keys(updateConfig).length  ? { UpdateConfig:   updateConfig  } : {}),
+      ...(Object.keys(rollbackConfig).length ? { RollbackConfig: rollbackConfig } : {}),
     };
+
+    return spec;
   }
+
   async update(name: string, composeContent: string, endpointId?: string) {
     return this.deploy(name, composeContent, endpointId);
   }
-
 
 }

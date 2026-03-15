@@ -228,6 +228,179 @@ volumes:
     isBuiltin: true,
     isPublic: true,
   },
+  {
+    type: 'stack',
+    title: 'SeaweedFS Distributed Storage',
+    description: 'Dağıtık paylaşımlı dosya sistemi. S3 uyumlu API + FUSE mount. Swarm üzerinde birden fazla volume grubu ile çalışır.',
+    logo: 'https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/note/SeaweedFS_logo.png',
+    image: 'chrislusf/seaweedfs:latest',
+    categories: ['storage', 'distributed'],
+    ports: [],
+    volumes: [],
+    env: [
+      { name: 'VOLUME_SIZE_LIMIT_MB', label: 'Volume Boyutu (MB)', default: '5120', description: 'Her volume sunucusunun max boyutu (MB). 5120=5GB, 20480=20GB' },
+      { name: 'REPLICATION', label: 'Replikasyon', default: '010', description: '000=yok, 010=2 node kopya, 020=3 node kopya' },
+      { name: 'MASTER_PORT', label: 'Master Port', default: '9333', description: 'Web UI ve API portu' },
+      { name: 'FILER_PORT', label: 'Filer / S3 API Port', default: '8888', description: 'S3 uyumlu API ve POSIX filer portu' },
+    ],
+    composeContent: `version: "3.8"
+
+# ─── SeaweedFS Dağıtık Depolama ───────────────────────────────────
+# Master : metadata + koordinasyon (port 9333 → Web UI)
+# Volume : veri parçaları, her node'da bir tane
+# Filer  : S3 API (8888) + WebDAV (8333)
+#
+# Kullanım:
+#   S3 endpoint : http://<host>:8888
+#   WebDAV      : http://<host>:8333
+#   Web UI      : http://<host>:9333
+#
+# Volume boyutu: -volumeSizeLimitMB ile sınırlanır
+# Replikasyon  : 000=yok 010=2node 020=3node 100=farklı rack
+
+services:
+  weed-master:
+    image: chrislusf/seaweedfs:latest
+    command:
+      - master
+      - -port=9333
+      - -mdir=/data
+      - -defaultReplication=\${REPLICATION:-010}
+    volumes:
+      - weed-master-data:/data
+    ports:
+      - "\${MASTER_PORT:-9333}:9333"
+    networks:
+      - weed-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: any
+        delay: 5s
+
+  # Volume Grubu 1 — node01 (/data/group1)
+  weed-vol-g1-n1:
+    image: chrislusf/seaweedfs:latest
+    command:
+      - volume
+      - -port=8080
+      - -mserver=weed-master:9333
+      - -dir=/data
+      - -replication=\${REPLICATION:-010}
+      - -volumeSizeLimitMB=\${VOLUME_SIZE_LIMIT_MB:-5120}
+      - -collection=group1
+    volumes:
+      - weed-vol-g1-n1:/data
+    networks:
+      - weed-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.hostname == node01]
+      restart_policy:
+        condition: any
+
+  # Volume Grubu 1 — node02 (replikasyon kopyası)
+  weed-vol-g1-n2:
+    image: chrislusf/seaweedfs:latest
+    command:
+      - volume
+      - -port=8080
+      - -mserver=weed-master:9333
+      - -dir=/data
+      - -replication=\${REPLICATION:-010}
+      - -volumeSizeLimitMB=\${VOLUME_SIZE_LIMIT_MB:-5120}
+      - -collection=group1
+    volumes:
+      - weed-vol-g1-n2:/data
+    networks:
+      - weed-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.hostname == node02]
+      restart_policy:
+        condition: any
+
+  # Volume Grubu 2 — node02 (farklı boyut, farklı klasör)
+  weed-vol-g2-n2:
+    image: chrislusf/seaweedfs:latest
+    command:
+      - volume
+      - -port=8081
+      - -mserver=weed-master:9333
+      - -dir=/data
+      - -replication=\${REPLICATION:-010}
+      - -volumeSizeLimitMB=20480
+      - -collection=group2
+    volumes:
+      - weed-vol-g2-n2:/data
+    networks:
+      - weed-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.hostname == node02]
+      restart_policy:
+        condition: any
+
+  # Volume Grubu 2 — node03 (replikasyon kopyası)
+  weed-vol-g2-n3:
+    image: chrislusf/seaweedfs:latest
+    command:
+      - volume
+      - -port=8081
+      - -mserver=weed-master:9333
+      - -dir=/data
+      - -replication=\${REPLICATION:-010}
+      - -volumeSizeLimitMB=20480
+      - -collection=group2
+    volumes:
+      - weed-vol-g2-n3:/data
+    networks:
+      - weed-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.hostname == node03]
+      restart_policy:
+        condition: any
+
+  weed-filer:
+    image: chrislusf/seaweedfs:latest
+    command:
+      - filer
+      - -port=8888
+      - -master=weed-master:9333
+    ports:
+      - "\${FILER_PORT:-8888}:8888"
+      - "8333:8333"
+    networks:
+      - weed-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: any
+
+volumes:
+  weed-master-data:
+  weed-vol-g1-n1:
+  weed-vol-g1-n2:
+  weed-vol-g2-n2:
+  weed-vol-g2-n3:
+
+networks:
+  weed-net:
+    driver: overlay
+    attachable: true
+`,
+    isBuiltin: true,
+    isPublic: true,
+  },
 ];
 
 @Injectable()
