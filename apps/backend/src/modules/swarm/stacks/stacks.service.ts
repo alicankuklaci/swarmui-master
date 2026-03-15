@@ -593,6 +593,7 @@ private parseDuration(d: string): number {
         RestartPolicy: restartPolicy,
         ...(Object.keys(resources).length ? { Resources: resources } : {}),
         ...(Object.keys(placement).length ? { Placement: placement } : {}),
+        Networks: networks,
         Runtime: 'container',
       },
       Mode: mode,
