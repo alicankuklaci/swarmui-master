@@ -131,8 +131,13 @@ export class StacksService {
       // Create networks first
       if (compose.networks) {
         for (const [networkName, networkConfig] of Object.entries(compose.networks || {})) {
-          const fullNetworkName = `${name}_${networkName}`;
           const netCfg: any = (networkConfig as any) || {};
+          // external network'leri oluşturma — zaten var olmalı
+          if (netCfg.external === true || (typeof netCfg.external === 'object' && netCfg.external !== null)) {
+            this.logger.log(`Skipping external network: ${netCfg.name || networkName}`);
+            continue;
+          }
+          const fullNetworkName = `${name}_${networkName}`;
           try {
             const existing = await docker.listNetworks({
               filters: JSON.stringify({ name: [fullNetworkName] }),
@@ -553,10 +558,18 @@ private parseDuration(d: string): number {
     const networks = (Array.isArray(config.networks) ? config.networks : Object.keys(config.networks || {}))
       .map((n: any) => {
         const netName = typeof n === 'string' ? n : Object.keys(n)[0];
-        const netCfg  = typeof n === 'object' ? Object.values(n)[0] as any : config.networks?.[netName] || {};
-        const target  = `${stackName}_${netName}`;
+        // service-level network config (aliases vb.)
+        const svcNetCfg = typeof n === 'object' ? Object.values(n)[0] as any : {};
+        // compose-level network config (external, driver, name vb.)
+        const topNetCfg = compose.networks?.[netName] || {};
+        const isExternal = topNetCfg.external === true ||
+          (typeof topNetCfg.external === 'object' && topNetCfg.external !== null);
+        // external ise: name: alanını kullan, yoksa netName'i olduğu gibi kullan
+        const target = isExternal
+          ? (topNetCfg.name || netName)
+          : `${stackName}_${netName}`;
         const net: any = { Target: target };
-        if (netCfg?.aliases?.length) net.Aliases = netCfg.aliases;
+        if (svcNetCfg?.aliases?.length) net.Aliases = svcNetCfg.aliases;
         return net;
       });
 
