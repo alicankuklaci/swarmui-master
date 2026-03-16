@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useAutoSelectEndpoint } from '@/hooks/useDocker';
 import { Toaster } from '@/components/ui/toaster';
 import { AppShell } from '@/components/layout/AppShell';
 import { LoginPage } from '@/pages/LoginPage';
@@ -64,6 +65,11 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 
 
 
+function AutoEndpoint() {
+  useAutoSelectEndpoint();
+  return null;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -73,6 +79,7 @@ export default function App() {
           path="/"
           element={
             <ProtectedRoute>
+              <AutoEndpoint />
               <AppShell />
             </ProtectedRoute>
           }

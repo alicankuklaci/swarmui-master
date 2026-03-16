@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, RefreshCw, Server, CheckCircle, XCircle, Search } from 'lucide-react';
+import { Plus, Trash2, RefreshCw, Server, CheckCircle, XCircle, Search, CheckCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,11 +13,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useForm, Controller } from 'react-hook-form';
 import { formatDate } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
+import { useAppStore } from '@/stores/app.store';
+import { useNavigate } from 'react-router-dom';
 
 export function EndpointsPage() {
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { selectedEndpointId, setSelectedEndpoint } = useAppStore();
+  const navigate = useNavigate();
 
   const { data, isLoading } = useQuery({
     queryKey: ['endpoints', search],
@@ -26,6 +30,14 @@ export function EndpointsPage() {
       return res.data.data;
     },
   });
+
+  // Auto-select: hiç seçili yoksa ilk endpoint'i seç
+  useEffect(() => {
+    const endpoints = data?.data ?? [];
+    if (endpoints.length > 0 && !selectedEndpointId) {
+      setSelectedEndpoint(endpoints[0]._id);
+    }
+  }, [data, selectedEndpointId, setSelectedEndpoint]);
 
   const createMutation = useMutation({
     mutationFn: (data: any) => api.post('/endpoints', data),
@@ -41,8 +53,9 @@ export function EndpointsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/endpoints/${id}`),
-    onSuccess: () => {
+    onSuccess: (_, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ['endpoints'] });
+      if (selectedEndpointId === deletedId) setSelectedEndpoint(null);
       toast({ title: 'Endpoint deleted' });
     },
   });
@@ -55,6 +68,12 @@ export function EndpointsPage() {
       toast({ title: data.success ? 'Connection successful' : 'Connection failed', description: data.error || `Docker ${data.dockerVersion}` });
     },
   });
+
+  const handleSelectEndpoint = (id: string) => {
+    setSelectedEndpoint(id);
+    toast({ title: 'Endpoint seçildi', description: 'Dashboard\'a yönlendiriliyor...' });
+    navigate('/dashboard');
+  };
 
   const { register, handleSubmit, control, reset, watch } = useForm({
     defaultValues: { name: '', type: 'local', url: 'unix:///var/run/docker.sock', agentToken: '' },
@@ -80,6 +99,11 @@ export function EndpointsPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="Search endpoints..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
             </div>
+            {selectedEndpointId && (
+              <p className="text-sm text-muted-foreground">
+                Satıra tıklayarak aktif endpoint'i değiştir
+              </p>
+            )}
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -98,43 +122,57 @@ export function EndpointsPage() {
             <TableBody>
               {isLoading ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
-              ) : data?.data?.length === 0 ? (
+              ) : !data?.data?.length ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No endpoints configured</TableCell></TableRow>
               ) : (
-                data?.data?.map((endpoint: any) => (
-                  <TableRow key={endpoint._id}>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Server className="w-4 h-4 text-muted-foreground" />
-                        <span className="font-medium">{endpoint.name}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm font-mono">{endpoint.url}</TableCell>
-                    <TableCell><Badge variant="outline">{endpoint.type}</Badge></TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        {endpoint.status === 'active' ? <CheckCircle className="w-4 h-4 text-green-500" /> : <XCircle className="w-4 h-4 text-red-500" />}
-                        <Badge variant={endpoint.status === 'active' ? 'success' : 'destructive'}>{endpoint.status}</Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm">{endpoint.dockerVersion || '-'}</TableCell>
-                    <TableCell>
-                      <Badge variant={endpoint.swarmEnabled ? 'success' : 'secondary'}>
-                        {endpoint.swarmEnabled ? 'Yes' : 'No'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => testMutation.mutate(endpoint._id)} disabled={testMutation.isPending}>
-                          <RefreshCw className="w-4 h-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteMutation.mutate(endpoint._id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                data.data.map((endpoint: any) => {
+                  const isActive = selectedEndpointId === endpoint._id;
+                  return (
+                    <TableRow
+                      key={endpoint._id}
+                      className={`cursor-pointer transition-colors ${isActive ? 'bg-primary/10 border-l-4 border-l-primary' : 'hover:bg-muted/50'}`}
+                      onClick={() => handleSelectEndpoint(endpoint._id)}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {isActive
+                            ? <CheckCheck className="w-4 h-4 text-primary" />
+                            : <Server className="w-4 h-4 text-muted-foreground" />
+                          }
+                          <span className={`font-medium ${isActive ? 'text-primary' : ''}`}>{endpoint.name}</span>
+                          {isActive && <Badge variant="default" className="text-xs ml-1">Active</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-sm font-mono">{endpoint.url}</TableCell>
+                      <TableCell><Badge variant="outline">{endpoint.type}</Badge></TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          {endpoint.status === 'active'
+                            ? <CheckCircle className="w-4 h-4 text-green-500" />
+                            : <XCircle className="w-4 h-4 text-red-500" />
+                          }
+                          <Badge variant={endpoint.status === 'active' ? 'success' : 'destructive'}>{endpoint.status}</Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm">{endpoint.dockerVersion || '-'}</TableCell>
+                      <TableCell>
+                        <Badge variant={endpoint.swarmEnabled ? 'success' : 'secondary'}>
+                          {endpoint.swarmEnabled ? 'Yes' : 'No'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => testMutation.mutate(endpoint._id)} disabled={testMutation.isPending}>
+                            <RefreshCw className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteMutation.mutate(endpoint._id)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -167,7 +205,7 @@ export function EndpointsPage() {
                 )}
               />
             </div>
-                        <div className="space-y-2">
+            <div className="space-y-2">
               <Label>URL</Label>
               <Input {...register('url', { required: true })} placeholder="unix:///var/run/docker.sock" />
             </div>

@@ -244,3 +244,22 @@ export function useRemoveStack(endpointId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['stacks', endpointId] }),
   });
 }
+
+// ─── Auto-select endpoint ────────────────────────────────────────────────────
+import { useEffect } from 'react';
+import { useAppStore } from '@/stores/app.store';
+
+export function useAutoSelectEndpoint() {
+  const { selectedEndpointId, setSelectedEndpoint } = useAppStore();
+  const { data } = useQuery({
+    queryKey: ['endpoints-auto'],
+    queryFn: () => api.get('/endpoints', { params: { limit: 10 } }).then((r) => r.data?.data?.data ?? []),
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    if (!selectedEndpointId && data && data.length > 0) {
+      setSelectedEndpoint(data[0]._id);
+    }
+  }, [data, selectedEndpointId, setSelectedEndpoint]);
+}
