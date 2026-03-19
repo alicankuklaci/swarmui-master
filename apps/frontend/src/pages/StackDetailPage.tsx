@@ -6,7 +6,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeftIcon, CopyIcon, CheckIcon, PencilIcon, XIcon, CheckCircleIcon, AlertCircleIcon } from 'lucide-react';
+import { ArrowLeftIcon, CopyIcon, CheckIcon, PencilIcon, XIcon, CheckCircleIcon, AlertCircleIcon, Webhook, Eye, EyeOff, Trash2, RefreshCw } from 'lucide-react';
+import { useStackWebhook, type StackWebhookData } from '@/hooks/useStackWebhook';
 import yaml from 'js-yaml';
 
 function useEndpoints() {
@@ -58,6 +59,9 @@ export function StackDetailPage() {
   const endpointId = (selectedEndpointId ?? (Array.isArray(endpoints) && endpoints[0]?.id) ?? '') as string;
   const { data: stack, isLoading, error } = useStackDetail(endpointId, name ?? '');
   const { data: composeContent } = useComposeFile(endpointId, name ?? '');
+  const { query: webhookQuery, generate: webhookGenerate, revoke: webhookRevoke } = useStackWebhook(endpointId, name ?? '');
+  const [showToken, setShowToken] = useState(false);
+  const [webhookCopied, setWebhookCopied] = useState(false);
 
   const [copied, setCopied] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -255,6 +259,111 @@ export function StackDetailPage() {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Deploy Webhook */}
+      <div className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Webhook className="h-5 w-5 text-blue-400" />
+          <h2 className="text-lg font-semibold">Deploy Webhook</h2>
+        </div>
+        <p className="text-muted-foreground text-sm">
+          Kimlik doğrulaması olmadan HTTP POST ile bu stack'i otomatik redeploy et.
+          CI/CD pipeline'larında (GitHub Actions, GitLab CI, Jenkins) kullanım için idealdir.
+        </p>
+
+        {webhookQuery.isLoading ? (
+          <div className="text-muted-foreground text-sm">Yükleniyor...</div>
+        ) : !webhookQuery.data ? (
+          <Button
+            onClick={() => webhookGenerate.mutate()}
+            disabled={webhookGenerate.isPending}
+            variant="outline"
+            size="sm"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${webhookGenerate.isPending ? 'animate-spin' : ''}`} />
+            Webhook Oluştur
+          </Button>
+        ) : (
+          <div className="space-y-4">
+            {/* Token URL */}
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground uppercase tracking-wide">Webhook URL</label>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-muted border rounded px-3 py-2 text-sm font-mono text-green-400 truncate min-w-0">
+                  {showToken
+                    ? `http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data.token}`
+                    : `http://212.83.131.111:1519/api/webhooks/stacks/${'•'.repeat(32)}`}
+                </code>
+                <Button variant="ghost" size="sm" onClick={() => setShowToken(!showToken)}>
+                  {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data!.token}`);
+                    setWebhookCopied(true);
+                    setTimeout(() => setWebhookCopied(false), 2000);
+                  }}
+                >
+                  {webhookCopied ? <CheckIcon className="h-4 w-4 text-green-400" /> : <CopyIcon className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { if (confirm('Webhook iptal edilsin mi?')) webhookRevoke.mutate(); }}
+                  className="text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* cURL örneği */}
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground uppercase tracking-wide">cURL Örneği</label>
+              <div className="relative">
+                <pre className="bg-muted rounded p-3 text-sm font-mono text-muted-foreground overflow-x-auto">{`curl -X POST \
+  "http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data.token}"`}</pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2 h-7 w-7 p-0"
+                  onClick={() => navigator.clipboard.writeText(`curl -X POST \\
+  "http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data!.token}"`)}
+                >
+                  <CopyIcon className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            {/* GitHub Actions örneği */}
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground uppercase tracking-wide">GitHub Actions Örneği</label>
+              <div className="relative">
+                <pre className="bg-muted rounded p-3 text-sm font-mono text-muted-foreground overflow-x-auto">{`- name: Deploy to Swarm
+  run: |
+    curl -X POST \
+      "\${{ secrets.SWARMUI_WEBHOOK_URL }}"`}</pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute top-2 right-2 h-7 w-7 p-0"
+                  onClick={() => navigator.clipboard.writeText(`- name: Deploy to Swarm
+  run: |
+    curl -X POST \\
+      "\${{ secrets.SWARMUI_WEBHOOK_URL }}"`) }
+                >
+                  <CopyIcon className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                GitHub repo secrets'a <code className="bg-muted px-1 rounded">SWARMUI_WEBHOOK_URL</code> olarak webhook URL'sini ekle.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Compose dosyası */}

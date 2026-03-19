@@ -4,6 +4,8 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { StacksService } from './stacks.service';
+import { Public } from '../../../common/decorators/public.decorator';
+import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RbacGuard } from '../../../common/guards/rbac.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -67,5 +69,40 @@ export class StacksController {
   @Roles('admin', 'operator')
   remove(@Param('endpointId') endpointId: string, @Param('name') name: string) {
     return this.stacksService.remove(name, endpointId);
+  }
+
+  @Get(':name/webhook')
+  @Roles('admin', 'operator')
+  getWebhook(@Param('endpointId') endpointId: string, @Param('name') name: string) {
+    return this.stacksService.getWebhook(name, endpointId);
+  }
+
+  @Post(':name/webhook')
+  @Roles('admin', 'operator')
+  generateWebhook(
+    @Param('endpointId') endpointId: string,
+    @Param('name') name: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.stacksService.generateWebhook(name, endpointId, user?.email || user?.username || 'unknown');
+  }
+
+  @Delete(':name/webhook')
+  @Roles('admin', 'operator')
+  revokeWebhook(@Param('endpointId') endpointId: string, @Param('name') name: string) {
+    return this.stacksService.revokeWebhook(name, endpointId);
+  }
+
+}
+
+@Controller('webhooks/stacks')
+export class StackWebhooksController {
+  constructor(private readonly stacksService: StacksService) {}
+
+  @Public()
+  @Post(':token')
+  @HttpCode(HttpStatus.OK)
+  trigger(@Param('token') token: string) {
+    return this.stacksService.triggerWebhook(token);
   }
 }
