@@ -1,4 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { StackWebhook } from './stack-webhook.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import Dockerode from 'dockerode';
@@ -20,6 +22,7 @@ export class StacksService {
   constructor(
     private readonly dockerService: DockerService,
     @InjectModel(StackFile.name) private stackFileModel: Model<StackFile>,
+    @InjectModel(StackWebhook.name) private webhookModel: Model<StackWebhook>,
   ) {}
 
   private getDocker(endpointId?: string): Dockerode {
@@ -608,6 +611,57 @@ private parseDuration(d: string): number {
 
   async update(name: string, composeContent: string, endpointId?: string) {
     return this.deploy(name, composeContent, endpointId);
+  }
+
+  // ─── Webhook Methods ────────────────────────────────────────────────────────
+
+  async generateWebhook(stackName: string, endpointId: string, createdBy: string) {
+    await this.webhookModel.deleteMany({ stackName, endpointId });
+    const webhook = await this.webhookModel.create({
+      token: randomUUID(),
+      stackName,
+      endpointId,
+      createdBy,
+    });
+    return { token: webhook.token };
+  }
+
+  async revokeWebhook(stackName: string, endpointId: string) {
+    await this.webhookModel.deleteMany({ stackName, endpointId });
+    return { success: true };
+  }
+
+  async getWebhook(stackName: string, endpointId: string) {
+    const wh = await this.webhookModel.findOne({ stackName, endpointId });
+    if (!wh) return null;
+    return {
+      token: wh.token,
+      createdBy: wh.createdBy,
+      createdAt: (wh as any).createdAt,
+    };
+  }
+
+  async triggerWebhook(token: string) {
+    const wh = await this.webhookModel.findOne({ token });
+    if (!wh) throw new NotFoundException('Webhook token not found');
+    const docker = this.getDocker(wh.endpointId);
+    const services = await (docker as any).listServices({
+      filters: JSON.stringify({ label: [`com.docker.stack.namespace=${wh.stackName}`] }),
+    });
+    if (!services.length) {
+      throw new NotFoundException(`Stack "${wh.stackName}" not found or has no services`);
+    }
+    const updated: string[] = [];
+    for (const svcInfo of services) {
+      const svc = docker.getService(svcInfo.ID);
+      const inspect = await svc.inspect();
+      const spec = JSON.parse(JSON.stringify(inspect.Spec));
+      spec.TaskTemplate = spec.TaskTemplate || {};
+      spec.TaskTemplate.ForceUpdate = (spec.TaskTemplate.ForceUpdate || 0) + 1;
+      await svc.update({ version: inspect.Version.Index, ...spec });
+      updated.push(svcInfo.Spec?.Name || svcInfo.ID);
+    }
+    return { success: true, stack: wh.stackName, updatedServices: updated };
   }
 
 }
