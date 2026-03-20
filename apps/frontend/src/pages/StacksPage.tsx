@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { PlusIcon, PencilIcon, Trash2Icon, XIcon, CheckCircleIcon, AlertCircleIcon } from 'lucide-react';
+import { PlusIcon, PencilIcon, Trash2Icon, XIcon, CheckCircleIcon, AlertCircleIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import yaml from 'js-yaml';
 
 const PLACEHOLDER = `version: "3.8"
@@ -38,6 +38,10 @@ export function StacksPage() {
   const [deploying, setDeploying] = useState(false);
   const [forceUpdate, setForceUpdate] = useState(false);
 
+  // Env variable state
+  const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
+  const [showEnvPanel, setShowEnvPanel] = useState(false);
+
   // Remove dialog
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -45,12 +49,14 @@ export function StacksPage() {
   function openNew() {
     setStackName(''); setComposeContent(PLACEHOLDER);
     setYamlValid(null); setDeployError(''); setForceUpdate(false);
+    setEnvVars([]); setShowEnvPanel(false);
     setEditorMode('new');
   }
 
   async function openEdit(name: string) {
     setStackName(name); setComposeContent('');
     setYamlValid(null); setDeployError(''); setForceUpdate(false);
+    setEnvVars([]); setShowEnvPanel(false);
     setEditorMode('edit');
     try {
       const res = await api.get(
@@ -68,20 +74,48 @@ export function StacksPage() {
     catch (e: any) { setYamlValid(false); setDeployError(`YAML Hatası: ${e.message}`); }
   }
 
+  // Env variable'ları YAML'a enjekte et
+  function injectEnvVarsToYaml(yamlContent: string, vars: { key: string; value: string }[]): string {
+    const filtered = vars.filter(v => v.key.trim());
+    if (!filtered.length) return yamlContent;
+    try {
+      const doc = yaml.load(yamlContent) as any;
+      if (doc?.services) {
+        for (const svcName of Object.keys(doc.services)) {
+          const svc = doc.services[svcName];
+          if (!svc.environment) svc.environment = [];
+          if (Array.isArray(svc.environment)) {
+            for (const v of filtered) {
+              const line = `${v.key.trim()}=${v.value}`;
+              const exists = svc.environment.some((e: string) => typeof e === 'string' && e.startsWith(`${v.key.trim()}=`));
+              if (!exists) svc.environment.push(line);
+              else {
+                const idx = svc.environment.findIndex((e: string) => typeof e === 'string' && e.startsWith(`${v.key.trim()}=`));
+                svc.environment[idx] = line;
+              }
+            }
+          }
+        }
+      }
+      return yaml.dump(doc, { lineWidth: -1, noRefs: true });
+    } catch { return yamlContent; }
+  }
+
   async function handleDeploy() {
     setDeployError('');
     if (!stackName.trim()) { setDeployError('Stack adı gerekli.'); return; }
-    try { yaml.load(composeContent); } catch (e: any) { setDeployError(`YAML Hatası: ${e.message}`); return; }
+    const finalContent = injectEnvVarsToYaml(composeContent, envVars);
+    try { yaml.load(finalContent); } catch (e: any) { setDeployError(`YAML Hatası: ${e.message}`); return; }
 
     setDeploying(true);
     try {
       if (editorMode === 'new') {
-        await deployStack.mutateAsync({ name: stackName.trim(), composeContent });
+        await deployStack.mutateAsync({ name: stackName.trim(), composeContent: finalContent });
       } else {
         // Update — force update ile
         await api.put(
           `/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(stackName)}`,
-          { composeContent, forceUpdate }
+          { composeContent: finalContent, forceUpdate }
         );
         if (forceUpdate) {
           // Servis başına force update — backend desteklemiyorsa frontend'den yap
@@ -200,6 +234,65 @@ export function StacksPage() {
             }
           }}
         />
+
+        {/* Env Variables Panel */}
+        <div className="border-t bg-card shrink-0">
+          <button
+            onClick={() => setShowEnvPanel(!showEnvPanel)}
+            className="w-full flex items-center justify-between px-6 py-2 text-sm font-medium hover:bg-muted/50 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <span>⚙️ Environment Variables</span>
+              {envVars.filter(v => v.key.trim()).length > 0 && (
+                <span className="bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {envVars.filter(v => v.key.trim()).length}
+                </span>
+              )}
+            </span>
+            {showEnvPanel ? <ChevronDownIcon className="h-4 w-4" /> : <ChevronUpIcon className="h-4 w-4" />}
+          </button>
+
+          {showEnvPanel && (
+            <div className="px-6 pb-4 space-y-2 max-h-64 overflow-y-auto border-t">
+              <p className="text-xs text-muted-foreground pt-3 pb-1">
+                Buraya eklediğin değişkenler YAML deploy edilirken tüm servislere otomatik enjekte edilir.
+              </p>
+              {[...envVars, { key: '', value: '' }].map((ev, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500"
+                    placeholder="VARIABLE_NAME"
+                    value={i < envVars.length ? envVars[i].key : ''}
+                    onChange={e => {
+                      const next = [...envVars];
+                      if (i === envVars.length) next.push({ key: e.target.value, value: '' });
+                      else next[i].key = e.target.value;
+                      setEnvVars(next.filter((v, idx) => idx < next.length - 1 ? true : v.key.trim() !== ''));
+                    }}
+                  />
+                  <span className="text-muted-foreground">=</span>
+                  <input
+                    className="flex-2 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-blue-500 min-w-0 w-64"
+                    placeholder="değer"
+                    value={i < envVars.length ? envVars[i].value : ''}
+                    onChange={e => {
+                      const next = [...envVars];
+                      if (i === envVars.length) next.push({ key: '', value: e.target.value });
+                      else next[i].value = e.target.value;
+                      setEnvVars(next);
+                    }}
+                  />
+                  {i < envVars.length && (
+                    <button
+                      onClick={() => setEnvVars(envVars.filter((_, idx) => idx !== i))}
+                      className="text-red-400 hover:text-red-300 px-1"
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Alt bilgi */}
         <div className="px-6 py-2 border-t bg-card text-xs text-muted-foreground shrink-0 flex gap-6">
