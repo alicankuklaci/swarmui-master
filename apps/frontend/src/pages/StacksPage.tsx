@@ -178,6 +178,12 @@ export function StacksPage() {
                 Force Update (image yeniden çek)
               </label>
             )}
+            <button
+              onClick={() => setShowEnvPanel(p => !p)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium border transition-colors ${showEnvPanel ? 'bg-yellow-500/15 border-yellow-500/40 text-yellow-300' : 'border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200'}`}
+            >
+              🔧 ENV {envVars.filter(v => v.key).length > 0 && <span className="bg-yellow-500 text-black text-xs rounded-full px-1.5 py-0.5 font-bold">{envVars.filter(v => v.key).length}</span>}
+            </button>
             <Button variant="outline" size="sm" onClick={validateYaml}>
               {yamlValid === true
                 ? <><CheckCircleIcon className="h-4 w-4 mr-1 text-green-500" />Geçerli</>
@@ -293,6 +299,43 @@ export function StacksPage() {
             </div>
           )}
         </div>
+
+        {/* Environment Variables Panel */}
+        {showEnvPanel && (
+          <div className="border-t bg-card px-6 py-4 shrink-0 space-y-3 max-h-72 overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold">🔧 Environment Variables</span>
+              <span className="text-xs text-muted-foreground">Tüm servislere otomatik enjekte edilir</span>
+            </div>
+            {envVars.map((ev, i) => (
+              <div key={i} className="flex gap-2 items-center">
+                <input
+                  className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm font-mono text-yellow-300 focus:outline-none focus:border-blue-500 placeholder-gray-600"
+                  placeholder="KEY"
+                  value={ev.key}
+                  onChange={e => setEnvVars(prev => prev.map((v, j) => j === i ? {...v, key: e.target.value} : v))}
+                />
+                <span className="text-gray-500 font-mono">=</span>
+                <input
+                  className="flex-2 min-w-0 w-64 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm font-mono text-green-300 focus:outline-none focus:border-blue-500 placeholder-gray-600"
+                  placeholder="değer"
+                  value={ev.value}
+                  onChange={e => setEnvVars(prev => prev.map((v, j) => j === i ? {...v, value: e.target.value} : v))}
+                />
+                <button
+                  onClick={() => setEnvVars(prev => prev.filter((_, j) => j !== i))}
+                  className="text-gray-500 hover:text-red-400 px-2 text-lg leading-none"
+                >×</button>
+              </div>
+            ))}
+            <button
+              onClick={() => setEnvVars(prev => [...prev, {key: '', value: ''}])}
+              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+            >
+              + Değişken Ekle
+            </button>
+          </div>
+        )}
 
         {/* Alt bilgi */}
         <div className="px-6 py-2 border-t bg-card text-xs text-muted-foreground shrink-0 flex gap-6">
