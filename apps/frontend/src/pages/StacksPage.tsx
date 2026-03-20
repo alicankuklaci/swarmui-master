@@ -79,7 +79,15 @@ export function StacksPage() {
     const filtered = vars.filter(v => v.key.trim());
     if (!filtered.length) return yamlContent;
     try {
-      const doc = yaml.load(yamlContent) as any;
+      // 1) ${VAR} ve $VAR placeholderlarini YAML string icinde dogrudan degistir
+      let content = yamlContent;
+      for (const v of filtered) {
+        const key = v.key.trim();
+        content = content.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), v.value);
+        content = content.replace(new RegExp(`(?<!\\w)\\$${key}(?!\\w)`, 'g'), v.value);
+      }
+      // 2) Ayrica env bloguna da ekle (container icinden okumak isteyenler icin)
+      const doc = yaml.load(content) as any;
       if (doc?.services) {
         for (const svcName of Object.keys(doc.services)) {
           const svc = doc.services[svcName];
