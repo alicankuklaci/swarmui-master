@@ -16,7 +16,10 @@ export function useStackWebhook(endpointId: string, stackName: string) {
     queryFn: () =>
       api
         .get(`/endpoints/${endpointId}/swarm/stacks/${stackName}/webhook`)
-        .then((r: { data: StackWebhookData }) => r.data)
+        .then((r: { data: unknown }) => {
+          const d = r.data as any;
+          return (d?.data ?? d) as StackWebhookData;
+        })
         .catch((e: { response?: { status: number } }) =>
           e.response?.status === 404 ? null : Promise.reject(e)
         ),
@@ -27,7 +30,7 @@ export function useStackWebhook(endpointId: string, stackName: string) {
     mutationFn: () =>
       api
         .post(`/endpoints/${endpointId}/swarm/stacks/${stackName}/webhook`)
-        .then((r: { data: StackWebhookData }) => r.data),
+        .then((r: { data: unknown }) => { const d = r.data as any; return (d?.data ?? d) as StackWebhookData; }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   });
 
