@@ -71,6 +71,21 @@ export class StacksController {
     return this.stacksService.remove(name, endpointId);
   }
 
+  @Get(':name/env-vars')
+  @Roles('admin', 'operator')
+  getEnvVars(@Param('name') name: string) {
+    return this.stacksService.getEnvVars(name);
+  }
+
+  @Put(':name/env-vars')
+  @Roles('admin', 'operator')
+  saveEnvVars(
+    @Param('name') name: string,
+    @Body() body: { envVars: { key: string; value: string }[] },
+  ) {
+    return this.stacksService.saveEnvVars(name, body.envVars);
+  }
+
   @Get(':name/webhook')
   @Roles('admin', 'operator')
   getWebhook(@Param('endpointId') endpointId: string, @Param('name') name: string) {

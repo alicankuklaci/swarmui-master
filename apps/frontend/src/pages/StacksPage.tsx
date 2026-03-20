@@ -59,11 +59,16 @@ export function StacksPage() {
     setEnvVars([]); setShowEnvPanel(false);
     setEditorMode('edit');
     try {
-      const res = await api.get(
-        `/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(name)}/compose`,
-        { responseType: 'text', transformResponse: [(d: unknown) => d], headers: { Accept: 'text/plain, */*' } }
-      );
-      setComposeContent(typeof res.data === 'string' ? res.data : String(res.data ?? PLACEHOLDER));
+      const [composeRes, envRes] = await Promise.all([
+        api.get(
+          `/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(name)}/compose`,
+          { responseType: 'text', transformResponse: [(d: unknown) => d], headers: { Accept: 'text/plain, */*' } }
+        ),
+        api.get(`/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(name)}/env-vars`).catch(() => ({ data: [] })),
+      ]);
+      setComposeContent(typeof composeRes.data === 'string' ? composeRes.data : String(composeRes.data ?? PLACEHOLDER));
+      const savedVars = Array.isArray(envRes.data?.data) ? envRes.data.data : Array.isArray(envRes.data) ? envRes.data : [];
+      if (savedVars.length > 0) { setEnvVars(savedVars); setShowEnvPanel(true); }
     } catch {
       setComposeContent(PLACEHOLDER);
     }
@@ -112,6 +117,13 @@ export function StacksPage() {
   async function handleDeploy() {
     setDeployError('');
     if (!stackName.trim()) { setDeployError('Stack adı gerekli.'); return; }
+    // Env vars'ı MongoDB'ye kaydet
+    const filteredVars = envVars.filter(v => v.key.trim());
+    if (filteredVars.length > 0) {
+      try {
+        await api.put(`/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(stackName)}/env-vars`, { envVars: filteredVars });
+      } catch { /* kayıt hatası deploy'u engellemesin */ }
+    }
     const finalContent = injectEnvVarsToYaml(composeContent, envVars);
     try { yaml.load(finalContent); } catch (e: any) { setDeployError(`YAML Hatası: ${e.message}`); return; }
 
