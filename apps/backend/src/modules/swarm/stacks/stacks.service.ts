@@ -199,10 +199,20 @@ export class StacksService {
           if (existing.length > 0) {
             const svc = docker.getService(existing[0].ID!);
             const current = await svc.inspect();
-            await svc.update({ version: current.Version.Index, ...spec });
+            const registryAuthU = this.getRegistryAuth();
+            if (registryAuthU) {
+              await (svc as any).update({ version: current.Version.Index, ...spec }, { authconfig: { key: registryAuthU } });
+            } else {
+              await svc.update({ version: current.Version.Index, ...spec });
+            }
             deployedServices.push({ name: serviceName, action: 'updated' });
           } else {
-            await docker.createService(spec);
+            const registryAuth = this.getRegistryAuth();
+            if (registryAuth) {
+              await (docker as any).createService(spec, { authconfig: { key: registryAuth } });
+            } else {
+              await docker.createService(spec);
+            }
             deployedServices.push({ name: serviceName, action: 'created' });
           }
         } catch (err: any) {
@@ -612,6 +622,29 @@ private parseDuration(d: string): number {
   async update(name: string, composeContent: string, endpointId?: string) {
     return this.deploy(name, composeContent, endpointId);
   }
+
+  // ─── Registry Auth ──────────────────────────────────────────────────────────
+
+  private getRegistryAuth(): string {
+    try {
+      const configPath = require('path').join(
+        process.env.HOME || '/root',
+        '.docker', 'config.json'
+      );
+      const config = JSON.parse(require('fs').readFileSync(configPath, 'utf8'));
+      const auths = config.auths || {};
+      // docker.io veya index.docker.io
+      const entry = auths['https://index.docker.io/v1/'] || auths['https://registry-1.docker.io/v2/'] || Object.values(auths)[0];
+      if (entry && (entry as any).auth) {
+        return Buffer.from(JSON.stringify({
+          identitytoken: '',
+          auth: (entry as any).auth,
+        })).toString('base64');
+      }
+    } catch { /* no auth config */ }
+    return '';
+  }
+
 
   // ─── Webhook Methods ────────────────────────────────────────────────────────
 
