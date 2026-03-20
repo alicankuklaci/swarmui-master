@@ -292,8 +292,8 @@ export function StackDetailPage() {
               <div className="flex items-center gap-2">
                 <code className="flex-1 bg-muted border rounded px-3 py-2 text-sm font-mono text-green-400 truncate min-w-0">
                   {showToken
-                    ? `http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data.token}`
-                    : `http://212.83.131.111:1519/api/webhooks/stacks/${'•'.repeat(32)}`}
+                    ? `http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data.token}`
+                    : `http://212.83.131.111:1519/api/v1/webhooks/stacks/${'•'.repeat(32)}`}
                 </code>
                 <Button variant="ghost" size="sm" onClick={() => setShowToken(!showToken)}>
                   {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -302,7 +302,7 @@ export function StackDetailPage() {
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    navigator.clipboard.writeText(`http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data!.token}`);
+                    navigator.clipboard.writeText(`http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data!.token}`);
                     setWebhookCopied(true);
                     setTimeout(() => setWebhookCopied(false), 2000);
                   }}
@@ -325,13 +325,13 @@ export function StackDetailPage() {
               <label className="text-xs text-muted-foreground uppercase tracking-wide">cURL Örneği</label>
               <div className="relative">
                 <pre className="bg-muted rounded p-3 text-sm font-mono text-muted-foreground overflow-x-auto">{`curl -X POST \
-  "http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data.token}"`}</pre>
+  "http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data.token}"`}</pre>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="absolute top-2 right-2 h-7 w-7 p-0"
                   onClick={() => navigator.clipboard.writeText(`curl -X POST \\
-  "http://212.83.131.111:1519/api/webhooks/stacks/${webhookQuery.data!.token}"`)}
+  "http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data!.token}"`)}
                 >
                   <CopyIcon className="h-3.5 w-3.5" />
                 </Button>
