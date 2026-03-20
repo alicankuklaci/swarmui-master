@@ -9,6 +9,9 @@ export class StackFile extends Document {
   @Prop({ required: true })
   content: string;
 
+  @Prop({ type: [{ key: String, value: String }], default: [] })
+  envVars: { key: string; value: string }[];
+
   @Prop()
   updatedAt: Date;
 }

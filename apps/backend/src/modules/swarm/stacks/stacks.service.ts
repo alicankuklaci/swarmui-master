@@ -623,7 +623,22 @@ private parseDuration(d: string): number {
     return this.deploy(name, composeContent, endpointId);
   }
 
-  // ─── Registry Auth ──────────────────────────────────────────────────────────
+  // ─── Env Vars ────────────────────────────────────────────────────────────────
+
+  async getEnvVars(name: string): Promise<{ key: string; value: string }[]> {
+    const doc = await this.stackFileModel.findOne({ name });
+    return doc?.envVars ?? [];
+  }
+
+  async saveEnvVars(name: string, envVars: { key: string; value: string }[]): Promise<void> {
+    await this.stackFileModel.findOneAndUpdate(
+      { name },
+      { envVars },
+      { upsert: true },
+    );
+  }
+
+    // ─── Registry Auth ──────────────────────────────────────────────────────────
 
   private getRegistryAuth(): string {
     try {
