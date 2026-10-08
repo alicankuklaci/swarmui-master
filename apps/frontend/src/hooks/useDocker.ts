@@ -1,5 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { toast } from '@/hooks/useToast';
+
+/**
+ * Default error handler for mutations in this file. Prevents silent failures
+ * when a page forgets to supply its own `onError`. Pages that supply one get
+ * both — this one surfaces the toast, the page's handler can still set state.
+ */
+function defaultErrorToast(verb: string) {
+  return (err: any) => {
+    const description = err?.response?.data?.message || err?.message || `Failed to ${verb}`;
+    toast({ variant: 'destructive', title: 'Error', description });
+  };
+}
 
 // ─── Containers ────────────────────────────────────────────────────────────
 
@@ -161,7 +174,11 @@ export function useUpdateNode(endpointId: string) {
   return useMutation({
     mutationFn: ({ id, body }: { id: string; body: any }) =>
       api.patch(`/endpoints/${endpointId}/swarm/nodes/${id}`, body).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes', endpointId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['nodes', endpointId] });
+      toast({ title: 'Node updated' });
+    },
+    onError: defaultErrorToast('update node'),
   });
 }
 
@@ -170,7 +187,11 @@ export function useRemoveNode(endpointId: string) {
   return useMutation({
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
       api.delete(`/endpoints/${endpointId}/swarm/nodes/${id}?force=${force || false}`).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes', endpointId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['nodes', endpointId] });
+      toast({ title: 'Node removed' });
+    },
+    onError: defaultErrorToast('remove node'),
   });
 }
 
@@ -206,6 +227,7 @@ export function useScaleService(endpointId: string) {
     mutationFn: ({ id, replicas }: { id: string; replicas: number }) =>
       api.post(`/endpoints/${endpointId}/swarm/services/${id}/scale`, { replicas }).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['services', endpointId] }),
+    onError: defaultErrorToast('scale service'),
   });
 }
 
@@ -214,7 +236,11 @@ export function useRemoveService(endpointId: string) {
   return useMutation({
     mutationFn: (id: string) =>
       api.delete(`/endpoints/${endpointId}/swarm/services/${id}`).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['services', endpointId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['services', endpointId] });
+      toast({ title: 'Service removed' });
+    },
+    onError: defaultErrorToast('remove service'),
   });
 }
 
@@ -232,7 +258,24 @@ export function useDeployStack(endpointId: string) {
   return useMutation({
     mutationFn: (body: { name: string; composeContent: string }) =>
       api.post(`/endpoints/${endpointId}/swarm/stacks`, body).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['stacks', endpointId] }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ['stacks', endpointId] });
+      // Per-item failure check — API success does not mean every service deployed.
+      const failed = Array.isArray(data?.services)
+        ? data.services.filter((s: any) => s?.action === 'failed')
+        : [];
+      if (failed.length > 0) {
+        const summary = failed
+          .map((s: any) => `• ${s.name ?? '?'}: ${s.error ?? 'unknown error'}`)
+          .join('\n');
+        toast({
+          variant: 'destructive',
+          title: `${failed.length} service(s) failed`,
+          description: summary,
+        });
+      }
+    },
+    onError: defaultErrorToast('deploy stack'),
   });
 }
 
@@ -245,21 +288,42 @@ export function useRemoveStack(endpointId: string) {
   });
 }
 
-// ─── Auto-select endpoint ────────────────────────────────────────────────────
+// ─── Endpoints shared cache ──────────────────────────────────────────────────
 import { useEffect } from 'react';
 import { useAppStore } from '@/stores/app.store';
 
-export function useAutoSelectEndpoint() {
-  const { selectedEndpointId, setSelectedEndpoint } = useAppStore();
-  const { data } = useQuery({
+/**
+ * Shared endpoints list. Single source of truth for the Topbar switcher,
+ * the auto-select hook, and anywhere a page needs the endpoint catalog.
+ * Normalizes the three response envelopes the backend has shipped.
+ */
+export function useEndpointsList() {
+  return useQuery({
     queryKey: ['endpoints-auto'],
-    queryFn: () => api.get('/endpoints', { params: { limit: 10 } }).then((r) => r.data?.data?.data ?? []),
+    queryFn: async () => {
+      const r = await api.get('/endpoints', { params: { limit: 50 } });
+      const body = r.data?.data ?? r.data;
+      if (Array.isArray(body)) return body;
+      if (Array.isArray(body?.data)) return body.data;
+      return [] as any[];
+    },
     staleTime: 30_000,
   });
+}
+
+export function useAutoSelectEndpoint() {
+  const { selectedEndpointId, setSelectedEndpoint } = useAppStore();
+  const { data } = useEndpointsList();
 
   useEffect(() => {
-    if (!selectedEndpointId && data && data.length > 0) {
-      setSelectedEndpoint(data[0]._id);
+    if (!data || data.length === 0) return;
+    // If no endpoint is selected OR the stored one no longer exists, pick first.
+    const exists = selectedEndpointId
+      ? data.some((e: any) => (e._id ?? e.id) === selectedEndpointId)
+      : false;
+    if (!selectedEndpointId || !exists) {
+      const first = data[0];
+      setSelectedEndpoint(first._id ?? first.id ?? null);
     }
   }, [data, selectedEndpointId, setSelectedEndpoint]);
 }

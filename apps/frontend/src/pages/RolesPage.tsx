@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Lock, Shield, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +24,7 @@ export function RolesPage() {
   const [roleName, setRoleName] = useState('');
   const [roleDescription, setRoleDescription] = useState('');
   const [permissions, setPermissions] = useState<Record<string, string[]>>({});
+  const confirm = useConfirm();
 
   const { data, isLoading } = useQuery({
     queryKey: ['roles'],
@@ -110,8 +113,8 @@ export function RolesPage() {
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
               ) : (
                 data?.map((role: any) => (
-                  <>
-                    <TableRow key={role._id} className="cursor-pointer" onClick={() => setExpandedRole(expandedRole === role._id ? null : role._id)}>
+                  <Fragment key={role._id}>
+                    <TableRow className="cursor-pointer" onClick={() => setExpandedRole(expandedRole === role._id ? null : role._id)}>
                       <TableCell>
                         {expandedRole === role._id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                       </TableCell>
@@ -133,19 +136,34 @@ export function RolesPage() {
                       <TableCell className="text-muted-foreground text-sm">{formatDate(role.createdAt)}</TableCell>
                       <TableCell>
                         {!role.isBuiltin && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive"
-                            onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(role._id); }}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Delete role ${role.name}`}
+                                className="text-destructive hover:text-destructive"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const ok = await confirm({
+                                    title: 'Delete role?',
+                                    message: `Users assigned to ${role.name} will lose this role.`,
+                                    variant: 'destructive',
+                                    confirmLabel: 'Delete',
+                                  });
+                                  if (ok) deleteMutation.mutate(role._id);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete role</TooltipContent>
+                          </Tooltip>
                         )}
                       </TableCell>
                     </TableRow>
                     {expandedRole === role._id && (
-                      <TableRow key={`${role._id}-perms`}>
+                      <TableRow>
                         <TableCell colSpan={7} className="bg-muted/30 px-8 py-4">
                           <div className="space-y-2">
                             <p className="text-sm font-medium mb-2">Permissions:</p>
@@ -166,7 +184,7 @@ export function RolesPage() {
                         </TableCell>
                       </TableRow>
                     )}
-                  </>
+                  </Fragment>
                 ))
               )}
             </TableBody>

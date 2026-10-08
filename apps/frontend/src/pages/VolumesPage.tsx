@@ -13,6 +13,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useVolumes, useCreateVolume, useRemoveVolume } from '@/hooks/useDocker';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 
 
@@ -34,6 +35,7 @@ export function VolumesPage() {
   });
   const createMutation = useCreateVolume(endpointId);
   const removeMutation = useRemoveVolume(endpointId);
+  const confirm = useConfirm();
 
   // Docker API returns { Volumes: [...], Warnings: [...] }
   const volumes: any[] = volumesData?.Volumes ?? volumesData ?? [];
@@ -60,7 +62,13 @@ export function VolumesPage() {
   }
 
   async function handleRemove(name: string) {
-    if (!confirm(`Remove volume "${name}"?`)) return;
+    const ok = await confirm({
+      title: `Remove volume ${name}?`,
+      message: 'Data stored in this volume will be deleted. This cannot be undone.',
+      variant: 'destructive',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     try {
       setError(null);
       await removeMutation.mutateAsync(name);
@@ -130,6 +138,7 @@ export function VolumesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label={`Browse ${volume.Name}`}
                           title="Browse"
                           onClick={() => { setBrowseVolume(volume.Name); setBrowsePath('/'); }}
                         >
@@ -138,6 +147,7 @@ export function VolumesPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          aria-label={`Remove volume ${volume.Name}`}
                           title="Remove"
                           onClick={() => handleRemove(volume.Name)}
                           disabled={removeMutation.isPending}
