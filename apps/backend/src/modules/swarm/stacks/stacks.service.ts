@@ -7,6 +7,9 @@ import Dockerode from 'dockerode';
 import * as yaml from 'js-yaml';
 import { DockerService } from '../../../docker/docker.service';
 import { StackFile } from './stack-file.schema';
+import { Registry, RegistryDocument } from '../../registries/schemas/registry.schema';
+import { decrypt } from '../../../common/utils/crypto.util';
+import { ConfigService } from '@nestjs/config';
 
 export interface StackInfo {
   name: string;
@@ -23,7 +26,13 @@ export class StacksService {
     private readonly dockerService: DockerService,
     @InjectModel(StackFile.name) private stackFileModel: Model<StackFile>,
     @InjectModel(StackWebhook.name) private webhookModel: Model<StackWebhook>,
+    @InjectModel(Registry.name) private registryModel: Model<RegistryDocument>,
+    private readonly configService: ConfigService,
   ) {}
+
+  private get encryptionSecret(): string {
+    return this.configService.get<string>('ENCRYPTION_SECRET', 'swarmui-secret-key');
+  }
 
   private getDocker(endpointId?: string): Dockerode {
     return this.dockerService.getLocalConnection();
@@ -190,26 +199,30 @@ export class StacksService {
 
       for (const [serviceName, serviceConfig] of Object.entries(compose.services || {})) {
         const spec = this.buildServiceSpec(name, serviceName, serviceConfig as any, compose);
+        this.logger.log(`SPEC[${serviceName}]=${JSON.stringify(spec)}`);
         try {
           // Check if service already exists
           const existing = await docker.listServices({
             filters: JSON.stringify({ name: [`${name}_${serviceName}`] }),
           });
 
+          const image = (spec as any)?.TaskTemplate?.ContainerSpec?.Image as string | undefined;
+          const authConfig = await this.getAuthConfigForImage(image);
           if (existing.length > 0) {
             const svc = docker.getService(existing[0].ID!);
             const current = await svc.inspect();
-            const registryAuthU = this.getRegistryAuth();
-            if (registryAuthU) {
-              await (svc as any).update({ version: current.Version.Index, ...spec }, { authconfig: { key: registryAuthU } });
+            const specWithVersion = { version: current.Version.Index, ...spec };
+            if (authConfig) {
+              // dockerode: svc.update(authObject, spec) — auth MUST be first arg
+              await (svc as any).update(authConfig, specWithVersion);
             } else {
-              await svc.update({ version: current.Version.Index, ...spec });
+              await svc.update(specWithVersion);
             }
             deployedServices.push({ name: serviceName, action: 'updated' });
           } else {
-            const registryAuth = this.getRegistryAuth();
-            if (registryAuth) {
-              await (docker as any).createService(spec, { authconfig: { key: registryAuth } });
+            if (authConfig) {
+              // dockerode: createService(authObject, spec) — auth MUST be first arg
+              await (docker as any).createService(authConfig, spec);
             } else {
               await docker.createService(spec);
             }
@@ -267,50 +280,159 @@ export class StacksService {
     }
 
     const composeDef: Record<string, any> = {};
+    const topNetworks: Record<string, any> = {};
+    const topSecrets: Record<string, any> = {};
+    const topConfigs: Record<string, any> = {};
+
     for (const svc of services) {
       const spec = svc.Spec ?? {};
-      const containerSpec = spec.TaskTemplate?.ContainerSpec ?? {};
+      const task = spec.TaskTemplate ?? {};
+      const containerSpec = task.ContainerSpec ?? {};
       const svcName = (spec.Name ?? '').replace(`${name}_`, '') || spec.Name;
 
       const serviceDef: Record<string, any> = {
         image: containerSpec.Image?.split('@')[0] ?? 'unknown',
       };
 
-      // Ports
-      const ports = svc.Endpoint?.Ports ?? [];
-      if (ports.length > 0) {
-        serviceDef.ports = ports.map(
-          (p: any) => `${p.PublishedPort}:${p.TargetPort}/${p.Protocol ?? 'tcp'}`,
-        );
-      }
+      if (containerSpec.Command?.length) serviceDef.command = containerSpec.Command;
+      if (containerSpec.Args?.length) serviceDef.command = [...(serviceDef.command ?? []), ...containerSpec.Args];
+      if (containerSpec.Hostname) serviceDef.hostname = containerSpec.Hostname;
+      if (containerSpec.User) serviceDef.user = containerSpec.User;
+      if (containerSpec.Dir) serviceDef.working_dir = containerSpec.Dir;
+      if (containerSpec.TTY) serviceDef.tty = true;
+      if (containerSpec.OpenStdin) serviceDef.stdin_open = true;
+      if (containerSpec.ReadOnly) serviceDef.read_only = true;
+      if (containerSpec.Init) serviceDef.init = true;
 
       // Environment
-      const env = containerSpec.Env;
-      if (env && env.length > 0) {
-        serviceDef.environment = env;
+      if (containerSpec.Env?.length) serviceDef.environment = containerSpec.Env;
+
+      // Ports (merge with spec.EndpointSpec)
+      const ports = (svc.Endpoint?.Ports ?? spec.EndpointSpec?.Ports ?? []);
+      if (ports.length) {
+        serviceDef.ports = ports.map((p: any) => ({
+          target: p.TargetPort,
+          published: p.PublishedPort,
+          protocol: p.Protocol ?? 'tcp',
+          ...(p.PublishMode && p.PublishMode !== 'ingress' ? { mode: p.PublishMode } : {}),
+        }));
       }
 
       // Volumes / Mounts
-      const mounts = containerSpec.Mounts ?? [];
-      if (mounts.length > 0) {
-        serviceDef.volumes = mounts.map(
-          (m: any) => `${m.Source}:${m.Target}${m.ReadOnly ? ':ro' : ''}`,
-        );
+      if (containerSpec.Mounts?.length) {
+        serviceDef.volumes = containerSpec.Mounts.map((m: any) => {
+          if (m.Type === 'bind' || m.Type === 'volume') {
+            return `${m.Source ?? ''}:${m.Target}${m.ReadOnly ? ':ro' : ''}`;
+          }
+          return { type: m.Type, source: m.Source, target: m.Target, read_only: !!m.ReadOnly };
+        });
       }
 
-      // Replicas
-      const replicas = spec.Mode?.Replicated?.Replicas;
-      if (replicas !== undefined && replicas !== 1) {
-        serviceDef.deploy = { replicas };
+      // Labels (strip stack-managed internals when they match the current stack)
+      const labels = { ...(spec.Labels ?? {}) };
+      delete labels['com.docker.stack.namespace'];
+      delete labels['com.docker.stack.image'];
+      if (Object.keys(labels).length) serviceDef.labels = labels;
+
+      // Container-level labels
+      if (containerSpec.Labels && Object.keys(containerSpec.Labels).length) {
+        serviceDef.container_labels = containerSpec.Labels;
       }
+
+      // Healthcheck
+      const hc = containerSpec.Healthcheck;
+      if (hc?.Test?.length) {
+        serviceDef.healthcheck = {
+          test: hc.Test,
+          ...(hc.Interval ? { interval: `${Math.round(hc.Interval / 1e9)}s` } : {}),
+          ...(hc.Timeout ? { timeout: `${Math.round(hc.Timeout / 1e9)}s` } : {}),
+          ...(hc.Retries ? { retries: hc.Retries } : {}),
+          ...(hc.StartPeriod ? { start_period: `${Math.round(hc.StartPeriod / 1e9)}s` } : {}),
+        };
+      }
+
+      // Networks (merge spec-level + service refs)
+      const svcNets = task.Networks ?? spec.Networks ?? [];
+      if (svcNets.length) {
+        serviceDef.networks = svcNets.map((n: any) => {
+          const netName = (n.Aliases?.[0]) || n.Target || '';
+          // Register at top-level with external hint
+          if (netName && !topNetworks[netName]) topNetworks[netName] = { external: true };
+          return netName;
+        }).filter(Boolean);
+      }
+
+      // Secrets
+      if (containerSpec.Secrets?.length) {
+        serviceDef.secrets = containerSpec.Secrets.map((s: any) => s.SecretName);
+        for (const s of containerSpec.Secrets) {
+          if (s.SecretName) topSecrets[s.SecretName] = { external: true };
+        }
+      }
+
+      // Configs
+      if (containerSpec.Configs?.length) {
+        serviceDef.configs = containerSpec.Configs.map((c: any) => c.ConfigName);
+        for (const c of containerSpec.Configs) {
+          if (c.ConfigName) topConfigs[c.ConfigName] = { external: true };
+        }
+      }
+
+      // Deploy block
+      const deploy: Record<string, any> = {};
+      if (spec.Mode?.Global) deploy.mode = 'global';
+      const replicas = spec.Mode?.Replicated?.Replicas;
+      if (replicas !== undefined) deploy.replicas = replicas;
+
+      if (task.Placement?.Constraints?.length) {
+        deploy.placement = { constraints: task.Placement.Constraints };
+      }
+
+      if (task.Resources) {
+        const resources: any = {};
+        if (task.Resources.Limits) {
+          resources.limits = {
+            ...(task.Resources.Limits.NanoCPUs ? { cpus: (task.Resources.Limits.NanoCPUs / 1e9).toString() } : {}),
+            ...(task.Resources.Limits.MemoryBytes ? { memory: `${Math.round(task.Resources.Limits.MemoryBytes / (1024 * 1024))}M` } : {}),
+          };
+        }
+        if (task.Resources.Reservations) {
+          resources.reservations = {
+            ...(task.Resources.Reservations.NanoCPUs ? { cpus: (task.Resources.Reservations.NanoCPUs / 1e9).toString() } : {}),
+            ...(task.Resources.Reservations.MemoryBytes ? { memory: `${Math.round(task.Resources.Reservations.MemoryBytes / (1024 * 1024))}M` } : {}),
+          };
+        }
+        if (Object.keys(resources).length) deploy.resources = resources;
+      }
+
+      if (task.RestartPolicy) {
+        deploy.restart_policy = {
+          ...(task.RestartPolicy.Condition ? { condition: task.RestartPolicy.Condition } : {}),
+          ...(task.RestartPolicy.Delay ? { delay: `${Math.round(task.RestartPolicy.Delay / 1e9)}s` } : {}),
+          ...(task.RestartPolicy.MaxAttempts !== undefined ? { max_attempts: task.RestartPolicy.MaxAttempts } : {}),
+        };
+      }
+
+      if (spec.UpdateConfig) {
+        deploy.update_config = {
+          ...(spec.UpdateConfig.Parallelism !== undefined ? { parallelism: spec.UpdateConfig.Parallelism } : {}),
+          ...(spec.UpdateConfig.Order ? { order: spec.UpdateConfig.Order } : {}),
+          ...(spec.UpdateConfig.FailureAction ? { failure_action: spec.UpdateConfig.FailureAction } : {}),
+          ...(spec.UpdateConfig.Delay ? { delay: `${Math.round(spec.UpdateConfig.Delay / 1e9)}s` } : {}),
+        };
+      }
+
+      if (Object.keys(deploy).length) serviceDef.deploy = deploy;
 
       composeDef[svcName] = serviceDef;
     }
 
-    return yaml.dump(
-      { version: '3.8', services: composeDef },
-      { lineWidth: 120, noRefs: true },
-    );
+    const result: any = { version: '3.8', services: composeDef };
+    if (Object.keys(topNetworks).length) result.networks = topNetworks;
+    if (Object.keys(topSecrets).length) result.secrets = topSecrets;
+    if (Object.keys(topConfigs).length) result.configs = topConfigs;
+
+    return yaml.dump(result, { lineWidth: 160, noRefs: true });
   }
 
   private parseComposeFile(content: string): any {
@@ -606,12 +728,12 @@ private parseDuration(d: string): number {
         RestartPolicy: restartPolicy,
         ...(Object.keys(resources).length ? { Resources: resources } : {}),
         ...(Object.keys(placement).length ? { Placement: placement } : {}),
-        Networks: networks,
-        Runtime: 'container',
+        ...(networks.length ? { Networks: networks } : {}),
+        // Runtime left unset: Docker defaults to 'container' when ContainerSpec is present.
       },
       Mode: mode,
-      Networks: networks,
-      EndpointSpec: { Ports: ports },
+      ...(networks.length ? { Networks: networks } : {}),
+      ...(ports.length ? { EndpointSpec: { Ports: ports } } : {}),
       ...(Object.keys(updateConfig).length  ? { UpdateConfig:   updateConfig  } : {}),
       ...(Object.keys(rollbackConfig).length ? { RollbackConfig: rollbackConfig } : {}),
     };
@@ -640,7 +762,87 @@ private parseDuration(d: string): number {
 
     // ─── Registry Auth ──────────────────────────────────────────────────────────
 
-  private getRegistryAuth(): string {
+  /**
+   * Raw authconfig object dockerode consumes. Dockerode base64-encodes it when
+   * sending the X-Registry-Auth header, so return the plain object.
+   */
+  private async getAuthConfigForImage(image?: string): Promise<{ username: string; password: string; serveraddress: string } | null> {
+    if (!image) return null;
+    try {
+      const registry = await this.pickRegistry(image);
+      if (!registry || !registry.username || !registry.passwordEncrypted) return null;
+      const password = decrypt(registry.passwordEncrypted, this.encryptionSecret);
+      const host = this.parseImageHost(image).toLowerCase();
+      const serveraddress = host === 'docker.io' ? 'https://index.docker.io/v1/' : registry.url;
+      return { username: registry.username, password, serveraddress };
+    } catch (err: any) {
+      this.logger.warn(`getAuthConfigForImage failed: ${err?.message ?? err}`);
+      return null;
+    }
+  }
+
+  /**
+   * Extract the registry host from an image reference.
+   * Rule: the first slash-separated segment is the host only if it contains '.' or ':'.
+   * Otherwise, the image lives on Docker Hub (docker.io).
+   */
+  private parseImageHost(image: string): string {
+    if (!image) return 'docker.io';
+    const noTag = image.split('@')[0].split(':').slice(0, image.includes('/') ? -1 : undefined).join(':') || image;
+    // simpler: cut off :tag or @digest first
+    const refNoTag = image.replace(/@.*$/, '').replace(/:[^/]+$/, '');
+    const firstSeg = refNoTag.split('/')[0];
+    if (refNoTag.includes('/') && (firstSeg.includes('.') || firstSeg.includes(':') || firstSeg === 'localhost')) {
+      return firstSeg;
+    }
+    return 'docker.io';
+  }
+
+  private async pickRegistry(image: string): Promise<RegistryDocument | null> {
+    const host = this.parseImageHost(image).toLowerCase();
+    const registries = await this.registryModel.find().lean().exec();
+    // Docker Hub matching
+    if (host === 'docker.io' || host === 'index.docker.io' || host === 'registry-1.docker.io') {
+      const hubReg = registries.find((r: any) =>
+        r.type === 'dockerhub' ||
+        (r.url ?? '').includes('docker.io') ||
+        (r.url ?? '').includes('hub.docker.com'),
+      );
+      return (hubReg as any) ?? null;
+    }
+    // Match by URL host
+    const match = registries.find((r: any) => {
+      try { return new URL(r.url).hostname.toLowerCase() === host; } catch { return false; }
+    });
+    return (match as any) ?? null;
+  }
+
+  /**
+   * Build the X-Registry-Auth base64 blob that Docker daemon uses to pull private images.
+   * First priority: a matching Registry record in the DB (user-managed credentials).
+   * Fallback: the backend container's own ~/.docker/config.json (if any).
+   */
+  private async getRegistryAuth(image?: string): Promise<string> {
+    try {
+      if (image) {
+        const registry = await this.pickRegistry(image);
+        if (registry && registry.username && registry.passwordEncrypted) {
+          const password = decrypt(registry.passwordEncrypted, this.encryptionSecret);
+          const host = this.parseImageHost(image).toLowerCase();
+          const serveraddress =
+            host === 'docker.io' ? 'https://index.docker.io/v1/' : registry.url;
+          return Buffer.from(JSON.stringify({
+            username: registry.username,
+            password,
+            serveraddress,
+          })).toString('base64');
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`getRegistryAuth DB lookup failed: ${err?.message ?? err}`);
+    }
+
+    // Fallback — host-side docker config (works if backend container has it mounted)
     try {
       const configPath = require('path').join(
         process.env.HOME || '/root',
@@ -648,7 +850,6 @@ private parseDuration(d: string): number {
       );
       const config = JSON.parse(require('fs').readFileSync(configPath, 'utf8'));
       const auths = config.auths || {};
-      // docker.io veya index.docker.io
       const entry = auths['https://index.docker.io/v1/'] || auths['https://registry-1.docker.io/v2/'] || Object.values(auths)[0];
       if (entry && (entry as any).auth) {
         return Buffer.from(JSON.stringify({

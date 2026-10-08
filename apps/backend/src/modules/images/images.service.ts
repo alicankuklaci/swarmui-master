@@ -1,13 +1,22 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Observable, Subject } from 'rxjs';
 import Dockerode from 'dockerode';
 import { DockerService } from '../../docker/docker.service';
+import { Registry, RegistryDocument } from '../registries/schemas/registry.schema';
+import { buildAuthConfig } from '../../common/utils/registry-auth.util';
 
 @Injectable()
 export class ImagesService {
   private readonly logger = new Logger(ImagesService.name);
 
-  constructor(private readonly dockerService: DockerService) {}
+  constructor(
+    private readonly dockerService: DockerService,
+    @InjectModel(Registry.name) private readonly registryModel: Model<RegistryDocument>,
+    private readonly configService: ConfigService,
+  ) {}
 
   private getDocker(endpointId?: string): Dockerode {
     return this.dockerService.getLocalConnection();
@@ -41,27 +50,38 @@ export class ImagesService {
   pull(fromImage: string, tag = 'latest', endpointId?: string): Observable<MessageEvent> {
     const docker = this.getDocker(endpointId);
     const subject = new Subject<MessageEvent>();
+    const imageRef = `${fromImage}:${tag}`;
+    const secret = this.configService.get<string>('ENCRYPTION_SECRET', 'swarmui-secret-key');
 
-    docker.pull(`${fromImage}:${tag}`, (err: any, stream: any) => {
-      if (err) {
-        subject.error(err);
-        return;
-      }
-
-      docker.modem.followProgress(
-        stream,
-        (err: any, output: any) => {
-          if (err) subject.error(err);
-          else {
-            subject.next({ data: { status: 'complete', output } } as MessageEvent);
-            subject.complete();
+    buildAuthConfig(imageRef, this.registryModel, secret)
+      .then((authconfig) => {
+        const cb = (err: any, stream: any) => {
+          if (err) {
+            subject.error(err);
+            return;
           }
-        },
-        (event: any) => {
-          subject.next({ data: event } as MessageEvent);
-        },
-      );
-    });
+          docker.modem.followProgress(
+            stream,
+            (err: any, output: any) => {
+              if (err) subject.error(err);
+              else {
+                subject.next({ data: { status: 'complete', output } } as MessageEvent);
+                subject.complete();
+              }
+            },
+            (event: any) => {
+              subject.next({ data: event } as MessageEvent);
+            },
+          );
+        };
+        // dockerode: docker.pull(repoTag, opts, callback, auth) — auth is the 4th arg.
+        if (authconfig) {
+          (docker as any).pull(imageRef, {}, cb, authconfig);
+        } else {
+          docker.pull(imageRef, cb);
+        }
+      })
+      .catch((err) => subject.error(err));
 
     return subject.asObservable();
   }
