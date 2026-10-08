@@ -10,6 +10,7 @@ import { StacksService } from './stacks/stacks.service';
 import { StacksController } from './stacks/stacks.controller';
 import { StackFile, StackFileSchema } from './stacks/stack-file.schema';
 import { StackWebhook, StackWebhookSchema } from './stacks/stack-webhook.schema';
+import { Registry, RegistrySchema } from '../registries/schemas/registry.schema';
 import { DockerModule } from '../../docker/docker.module';
 import { StackWebhooksController } from './stacks/stacks.controller';
 
@@ -19,6 +20,7 @@ import { StackWebhooksController } from './stacks/stacks.controller';
     MongooseModule.forFeature([
       { name: StackFile.name, schema: StackFileSchema },
       { name: StackWebhook.name, schema: StackWebhookSchema },
+      { name: Registry.name, schema: RegistrySchema },
     ]),
   ],
   controllers: [SwarmController, NodesController, ServicesController, StacksController, StackWebhooksController],
