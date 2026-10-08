@@ -13,6 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useForm, Controller } from 'react-hook-form';
 import { formatDate } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAppMutation } from '@/hooks/useAppMutation';
 
 const roleColors: Record<string, 'default' | 'secondary' | 'destructive' | 'warning'> = {
   admin: 'destructive',
@@ -77,13 +80,23 @@ export function UsersPage() {
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/users/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['users'] });
-      toast({ title: 'User deleted', description: 'User has been removed' });
-    },
-  });
+  const deleteMutation = useAppMutation(
+    (id: string) => api.delete(`/users/${id}`).then((r) => r.data?.data ?? r.data),
+    { successMessage: 'User deleted', invalidate: [['users']] },
+  );
+
+  const confirm = useConfirm();
+
+  async function requestDelete(user: any) {
+    const ok = await confirm({
+      title: `Delete user ${user.username}?`,
+      message: 'This permanently removes the account and revokes all their sessions.',
+      variant: 'destructive',
+      confirmLabel: 'Delete',
+      typeToConfirm: { phrase: user.username },
+    });
+    if (ok) deleteMutation.mutate(user._id);
+  }
 
   const { register, handleSubmit, control, reset, formState: { errors } } = useForm({
     defaultValues: { username: '', email: '', password: '', role: 'standard' },
@@ -169,21 +182,36 @@ export function UsersPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">{user.createdAt ? formatDate(user.createdAt) : "—"}</TableCell>
                     <TableCell className="text-right space-x-1">
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(user)} title="Edit user">
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => openPasswordReset(user._id)} title="Reset password">
-                        <KeyRound className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => deleteMutation.mutate(user._id)}
-                        title="Delete user"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Edit ${user.username}`} onClick={() => openEdit(user)}>
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Edit user</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Reset password for ${user.username}`} onClick={() => openPasswordReset(user._id)}>
+                            <KeyRound className="w-4 h-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Reset password</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Delete ${user.username}`}
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => requestDelete(user)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete user</TooltipContent>
+                      </Tooltip>
                     </TableCell>
                   </TableRow>
                 ))

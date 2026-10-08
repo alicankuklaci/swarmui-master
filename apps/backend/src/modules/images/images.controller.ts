@@ -23,6 +23,16 @@ export class ImagesController {
     return this.imagesService.search(term, endpointId);
   }
 
+  @Sse('pull')
+  @Roles('admin', 'operator')
+  pull(
+    @Param('endpointId') endpointId: string,
+    @Query('image') image: string,
+    @Query('tag') tag?: string,
+  ): Observable<MessageEvent> {
+    return this.imagesService.pull(image, tag || 'latest', endpointId);
+  }
+
   @Get(':id')
   inspect(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.imagesService.inspect(id, endpointId);
@@ -36,16 +46,6 @@ export class ImagesController {
   @Get(':id/check-update')
   checkUpdate(@Param('endpointId') endpointId: string, @Param('id') id: string) {
     return this.imagesService.checkUpdate(id, endpointId);
-  }
-
-  @Sse('pull')
-  @Roles('admin', 'operator')
-  pull(
-    @Param('endpointId') endpointId: string,
-    @Query('image') image: string,
-    @Query('tag') tag?: string,
-  ): Observable<MessageEvent> {
-    return this.imagesService.pull(image, tag || 'latest', endpointId);
   }
 
   @Post(':id/tag')

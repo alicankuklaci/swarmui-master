@@ -16,6 +16,12 @@ COPY packages/ ./packages/
 
 # Install dependencies and build
 RUN pnpm install --frozen-lockfile
+
+# Build version
+ARG BUILD_VERSION=dev
+ARG BUILD_TIME=unknown
+ENV VITE_BUILD_VERSION=$BUILD_VERSION
+ENV VITE_BUILD_TIME=$BUILD_TIME
 RUN pnpm build
 
 # Production Stage - Backend

@@ -1,13 +1,30 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Observable, Subject } from 'rxjs';
 import Dockerode from 'dockerode';
 import { DockerService } from '../../../docker/docker.service';
+import { Registry, RegistryDocument } from '../../registries/schemas/registry.schema';
+import { buildAuthConfig } from '../../../common/utils/registry-auth.util';
 
 @Injectable()
 export class ServicesService {
   private readonly logger = new Logger(ServicesService.name);
 
-  constructor(private readonly dockerService: DockerService) {}
+  constructor(
+    private readonly dockerService: DockerService,
+    @InjectModel(Registry.name) private readonly registryModel: Model<RegistryDocument>,
+    private readonly configService: ConfigService,
+  ) {}
+
+  private get encryptionSecret(): string {
+    return this.configService.get<string>('ENCRYPTION_SECRET', 'swarmui-secret-key');
+  }
+
+  private extractImage(spec: any): string | undefined {
+    return spec?.TaskTemplate?.ContainerSpec?.Image;
+  }
 
   private getDocker(endpointId?: string): Dockerode {
     return this.dockerService.getLocalConnection();
@@ -30,7 +47,11 @@ export class ServicesService {
 
   async create(spec: any, endpointId?: string) {
     const docker = this.getDocker(endpointId);
-    const service = await docker.createService(spec);
+    const auth = await buildAuthConfig(this.extractImage(spec) ?? '', this.registryModel, this.encryptionSecret);
+    // dockerode: createService(authObject, spec) — auth MUST be first arg.
+    const service = auth
+      ? await (docker as any).createService(auth, spec)
+      : await docker.createService(spec);
     return service;
   }
 
@@ -38,7 +59,13 @@ export class ServicesService {
     const docker = this.getDocker(endpointId);
     const service = docker.getService(id);
     const current = await service.inspect();
-    await service.update({ version: current.Version.Index, ...spec });
+    const specWithVersion = { version: current.Version.Index, ...spec };
+    const auth = await buildAuthConfig(this.extractImage(spec) ?? '', this.registryModel, this.encryptionSecret);
+    if (auth) {
+      await (service as any).update(auth, specWithVersion);
+    } else {
+      await service.update(specWithVersion);
+    }
     return service.inspect();
   }
 

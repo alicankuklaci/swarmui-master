@@ -1,0 +1,4 @@
+# Playwright E2E artifacts
+playwright-report/
+playwright-report-results/
+e2e/.auth/

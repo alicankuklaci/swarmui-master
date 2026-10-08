@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Plus, Download, Trash2, RefreshCw, HardDrive, CheckCircle, XCircle, Clock, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,10 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { formatDate, formatBytes } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
+import { useAuthStore } from '@/stores/auth.store';
+import { useAppMutation } from '@/hooks/useAppMutation';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 const statusIcon: Record<string, JSX.Element> = {
   success: <CheckCircle className="w-4 h-4 text-green-500" />,
@@ -28,9 +32,9 @@ const statusVariant: Record<string, any> = {
 };
 
 export function BackupPage() {
-  const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', includeDatabase: true, includeConfigs: true });
+  const confirm = useConfirm();
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['backups'],
@@ -42,36 +46,52 @@ export function BackupPage() {
     refetchInterval: 5000,
   });
 
-  const createMutation = useMutation({
-    mutationFn: (dto: any) => api.post('/backup', dto),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['backups'] });
-      setShowCreate(false);
-      toast({ title: 'Backup started' });
+  const createMutation = useAppMutation(
+    (dto: any) => api.post('/backup', dto).then((r) => r.data?.data ?? r.data),
+    {
+      successMessage: 'Backup started',
+      invalidate: [['backups']],
+      onSuccess: () => setShowCreate(false),
     },
-    onError: (e: any) => toast({ title: 'Error', description: e.response?.data?.message, variant: 'destructive' }),
-  });
+  );
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/backup/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['backups'] });
-      toast({ title: 'Backup deleted' });
-    },
-  });
+  const deleteMutation = useAppMutation(
+    (id: string) => api.delete(`/backup/${id}`).then((r) => r.data?.data ?? r.data),
+    { successMessage: 'Backup deleted', invalidate: [['backups']] },
+  );
+
+  async function requestDelete(id: string, name?: string) {
+    const ok = await confirm({
+      title: 'Delete backup?',
+      message: name ? `This permanently deletes ${name}.` : 'This permanently deletes this backup.',
+      variant: 'destructive',
+      confirmLabel: 'Delete',
+    });
+    if (ok) deleteMutation.mutate(id);
+  }
 
   const handleDownload = async (jobId: string) => {
-    const stored = localStorage.getItem("swarmui-auth");
-    const token = stored ? JSON.parse(stored).token : "";
-    const res = await fetch(`/api/v1/backup/${jobId}/download`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) { alert("Download failed"); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `backup-${jobId}.zip`; a.click();
-    URL.revokeObjectURL(url);
+    const token = useAuthStore.getState().accessToken ?? '';
+    let objectUrl: string | null = null;
+    try {
+      const res = await fetch(`/api/v1/backup/${jobId}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        toast({ variant: 'destructive', title: 'Download failed', description: `HTTP ${res.status}` });
+        return;
+      }
+      const blob = await res.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `backup-${jobId}.zip`;
+      a.click();
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Download failed', description: err?.message ?? 'Network error' });
+    } finally {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
   };
 
   const jobs = data || [];
@@ -84,9 +104,14 @@ export function BackupPage() {
           <p className="text-muted-foreground">Manage system backups and restore points</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="icon" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" aria-label="Refresh backups" onClick={() => refetch()}>
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh backups</TooltipContent>
+          </Tooltip>
           <Button onClick={() => setShowCreate(true)}>
             <Plus className="w-4 h-4 mr-2" />
             New Backup
@@ -174,20 +199,32 @@ export function BackupPage() {
                     <TableCell>
                       <div className="flex gap-1">
                         {job.status === 'success' && job.storage === 'local' && (
-                          <Button
-                            variant="ghost" size="icon"
-                            onClick={() => handleDownload(job._id)}
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost" size="icon"
+                                aria-label={`Download ${job.name}`}
+                                onClick={() => handleDownload(job._id)}
+                              >
+                                <Download className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Download</TooltipContent>
+                          </Tooltip>
                         )}
-                        <Button
-                          variant="ghost" size="icon"
-                          onClick={() => deleteMutation.mutate(job._id)}
-                          disabled={deleteMutation.isPending}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost" size="icon"
+                              aria-label={`Delete ${job.name}`}
+                              onClick={() => requestDelete(job._id, job.name)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete</TooltipContent>
+                        </Tooltip>
                       </div>
                     </TableCell>
                   </TableRow>
