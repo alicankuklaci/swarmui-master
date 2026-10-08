@@ -160,7 +160,7 @@ export function RegistriesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>İptal</Button>
-            <Button onClick={() => createMutation.mutate({ ...form, passwordEncrypted: form.password })} disabled={createMutation.isPending || !form.name || !form.url}>
+            <Button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending || !form.name || !form.url}>
               {createMutation.isPending ? 'Kaydediliyor...' : 'Kaydet'}
             </Button>
           </DialogFooter>

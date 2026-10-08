@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface Toast {
   id: string;
@@ -7,29 +7,55 @@ interface Toast {
   variant?: 'default' | 'destructive';
 }
 
-const listeners: Array<(toasts: Toast[]) => void> = [];
+type Listener = (toasts: Toast[]) => void;
+
+const listeners: Listener[] = [];
 let toastList: Toast[] = [];
 
-function updateToasts(toasts: Toast[]) {
-  toastList = toasts;
-  listeners.forEach((listener) => listener(toasts));
+function emit() {
+  // Snapshot copy so consumers always get a new reference.
+  const snapshot = toastList.slice();
+  for (const listener of listeners) listener(snapshot);
 }
 
-export function toast(toast: Omit<Toast, 'id'>) {
+/**
+ * Fire-and-forget toast. Can be called from any module (not just React).
+ * Dispatches to subscribed hooks and the global Toaster.
+ */
+export function toast(input: Omit<Toast, 'id'>) {
   const id = Math.random().toString(36).slice(2);
-  const newToast = { ...toast, id };
-  updateToasts([...toastList, newToast]);
+  const next = { ...input, id };
+  toastList = [...toastList, next];
+  emit();
   setTimeout(() => {
-    updateToasts(toastList.filter((t) => t.id !== id));
+    toastList = toastList.filter((t) => t.id !== id);
+    emit();
   }, 4000);
   return id;
 }
 
+/**
+ * React hook that returns the live `toasts` array, re-rendering on changes.
+ * Fixes the earlier bug where `toasts` was a frozen initial snapshot.
+ */
 export function useToast() {
   const [toasts, setToasts] = useState<Toast[]>(toastList);
 
-  const subscribe = useCallback((listener: (toasts: Toast[]) => void) => {
+  useEffect(() => {
+    const listener: Listener = (next) => setToasts(next);
     listeners.push(listener);
+    // Resync in case toasts fired between render and effect.
+    setToasts(toastList.slice());
+    return () => {
+      const idx = listeners.indexOf(listener);
+      if (idx > -1) listeners.splice(idx, 1);
+    };
+  }, []);
+
+  const subscribe = useCallback((listener: Listener) => {
+    listeners.push(listener);
+    // Prime new subscriber with current state.
+    listener(toastList.slice());
     return () => {
       const idx = listeners.indexOf(listener);
       if (idx > -1) listeners.splice(idx, 1);

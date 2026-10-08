@@ -36,6 +36,11 @@ export function NotificationsPage() {
   const markReadMutation = useMutation({
     mutationFn: (id: string) => api.patch(`/notifications/${id}/read`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onError: (err: any) => toast({
+      variant: 'destructive',
+      title: 'Error',
+      description: err?.response?.data?.message || 'Failed to mark as read',
+    }),
   });
 
   const markAllReadMutation = useMutation({
@@ -44,6 +49,11 @@ export function NotificationsPage() {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       toast({ title: 'All notifications marked as read' });
     },
+    onError: (err: any) => toast({
+      variant: 'destructive',
+      title: 'Error',
+      description: err?.response?.data?.message || 'Failed to mark all as read',
+    }),
   });
 
   const notifications = data?.data || [];

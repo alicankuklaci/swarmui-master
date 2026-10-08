@@ -5,11 +5,13 @@ import { TemplatesService } from './templates.service';
 import { TemplateDeployService } from './template-deploy.service';
 import { TemplatesController } from './templates.controller';
 import { DockerModule } from '../../docker/docker.module';
+import { SwarmModule } from '../swarm/swarm.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Template.name, schema: TemplateSchema }]),
     DockerModule,
+    SwarmModule,
   ],
   controllers: [TemplatesController],
   providers: [TemplatesService, TemplateDeployService],

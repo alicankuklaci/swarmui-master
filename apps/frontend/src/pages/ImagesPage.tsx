@@ -1,9 +1,11 @@
 import { useAppStore } from '@/stores/app.store';
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Trash2, Download, Loader2, AlertTriangle, ArrowUpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +40,7 @@ function parseRepoTag(repoTag: string): { repo: string; tag: string } {
 
 export function ImagesPage() {
   const endpointId = useAppStore((s) => s.selectedEndpointId) ?? '';
+  const queryClient = useQueryClient();
   const [pullOpen, setPullOpen] = useState(false);
   const [pruneOpen, setPruneOpen] = useState(false);
   const [imageName, setImageName] = useState('');
@@ -68,10 +71,14 @@ export function ImagesPage() {
 
   async function handlePull() {
     if (!imageName.trim()) return;
+    if (!endpointId) { setPullError('No endpoint selected'); return; }
     try {
       setPulling(true);
       setPullError(null);
-      await api.get(`/endpoints/local/images/pull?image=${encodeURIComponent(imageName.trim())}`);
+      await api.get(
+        `/endpoints/${endpointId}/images/pull?image=${encodeURIComponent(imageName.trim())}`,
+      );
+      queryClient.invalidateQueries({ queryKey: ['images', endpointId] });
       setPullOpen(false);
       setImageName('');
     } catch (err: any) {
@@ -177,15 +184,20 @@ export function ImagesPage() {
                         <td className="p-3 text-muted-foreground text-xs">{formatDate(image.Created)}</td>
                         <td className="p-3">
                           {idx === 0 && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Remove"
-                              onClick={() => handleRemove(image.Id)}
-                              disabled={removeMutation.isPending}
-                            >
-                              <Trash2 className="w-4 h-4 text-destructive" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={`Remove image ${repo}:${tagName}`}
+                                  onClick={() => handleRemove(image.Id)}
+                                  disabled={removeMutation.isPending}
+                                >
+                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Remove image</TooltipContent>
+                            </Tooltip>
                           )}
                         </td>
                       </tr>

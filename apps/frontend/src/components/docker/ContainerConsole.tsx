@@ -113,7 +113,10 @@ export function ContainerConsole({ endpointId, containerId, cmd, className, agen
       xtermRef.current = null;
       socketRef.current = null;
     };
-  }, [containerId, endpointId]);
+    // cmd and agentUrl are intentionally included: changing them must
+    // re-establish the socket so the right exec session is attached.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerId, endpointId, agentUrl, cmd?.join('\0')]);
 
   return (
     <div className={cn('flex flex-col', className)}>

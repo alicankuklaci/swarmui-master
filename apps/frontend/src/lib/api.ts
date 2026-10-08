@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { type AxiosResponse } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
 
 export const api = axios.create({
@@ -6,6 +6,15 @@ export const api = axios.create({
   withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
+
+/**
+ * Standard unwrap for the backend's envelope: `{ data: … }` with an optional
+ * second nesting (`{ data: { data: … } }` on paginated responses). Prefer this
+ * over inline `r.data?.data ?? r.data` chains — it's typed and consistent.
+ */
+export function unwrap<T = any>(r: AxiosResponse): T {
+  return (r.data?.data ?? r.data) as T;
+}
 
 // Request interceptor - attach access token
 api.interceptors.request.use((config) => {

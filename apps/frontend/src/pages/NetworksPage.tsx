@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useNetworks, useCreateNetwork, useRemoveNetwork } from '@/hooks/useDocker';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 
 
@@ -81,6 +82,7 @@ export function NetworksPage() {
   });
   const createMutation = useCreateNetwork(endpointId);
   const removeMutation = useRemoveNetwork(endpointId);
+  const confirm = useConfirm();
 
   function openCreate() {
     setNetworkName('');
@@ -114,8 +116,14 @@ export function NetworksPage() {
     }
   }
 
-  async function handleRemove(id: string) {
-    if (!confirm('Remove this network?')) return;
+  async function handleRemove(id: string, name?: string) {
+    const ok = await confirm({
+      title: name ? `Remove network ${name}?` : 'Remove this network?',
+      message: 'Containers attached to this network will lose connectivity.',
+      variant: 'destructive',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     try {
       setError(null);
       await removeMutation.mutateAsync(id);
@@ -193,6 +201,7 @@ export function NetworksPage() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label={`Details for ${network.Name}`}
                             title="Details"
                             onClick={() => setDetailNetworkId(network.Id)}
                           >
@@ -202,8 +211,9 @@ export function NetworksPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Remove network ${network.Name}`}
                               title="Remove"
-                              onClick={() => handleRemove(network.Id)}
+                              onClick={() => handleRemove(network.Id, network.Name)}
                               disabled={removeMutation.isPending}
                             >
                               <Trash2 className="w-4 h-4 text-destructive" />
