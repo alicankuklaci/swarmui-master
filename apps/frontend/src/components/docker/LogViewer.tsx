@@ -26,59 +26,81 @@ export function LogViewer({ endpointId, containerId, tail = 200, className, reso
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [paused, setPaused] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pausedRef = useRef(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
 
   useEffect(() => {
-    const token = useAuthStore.getState().accessToken || '';
-    const AGENT_TOKEN = 'supersecret';
-    let url: string;
-    if (agentUrl) {
-      // Direct connection to node agent (Docker API proxy)
-      url = `${agentUrl}/containers/${containerId}/logs?stdout=1&stderr=1&tail=${tail}&follow=1`;
-    } else {
-      const basePath = resourceType === 'service'
-        ? `/api/v1/endpoints/${endpointId}/swarm/services/${containerId}/logs`
-        : `/api/v1/endpoints/${endpointId}/containers/${containerId}/logs`;
-      url = `${basePath}?tail=${tail}&follow=true${token ? '&token=' + encodeURIComponent(token) : ''}`;
+    const MAX_RETRIES = 5;
+    let attempt = 0;
+    let cancelled = false;
+
+    function connect() {
+      const token = useAuthStore.getState().accessToken || '';
+      const AGENT_TOKEN = 'supersecret';
+      let url: string;
+      if (agentUrl) {
+        url = `${agentUrl}/containers/${containerId}/logs?stdout=1&stderr=1&tail=${tail}&follow=1`;
+      } else {
+        const basePath = resourceType === 'service'
+          ? `/api/v1/endpoints/${endpointId}/swarm/services/${containerId}/logs`
+          : `/api/v1/endpoints/${endpointId}/containers/${containerId}/logs`;
+        url = `${basePath}?tail=${tail}&follow=true${token ? '&token=' + encodeURIComponent(token) : ''}`;
+      }
+
+      const finalUrl = agentUrl
+        ? `${url}&token=${encodeURIComponent(AGENT_TOKEN)}`
+        : url;
+      const es = new EventSource(finalUrl);
+      eventSourceRef.current = es;
+
+      es.onopen = () => {
+        if (cancelled) return;
+        attempt = 0;
+        setReconnectAttempt(0);
+        setConnected(true);
+      };
+
+      es.onmessage = (e) => {
+        if (pausedRef.current) return;
+        if (!e.data || e.data === '') return;
+        try {
+          const data = JSON.parse(e.data);
+          const logData = data.data ?? data;
+          setLogs((prev) => [...prev.slice(-2000), typeof logData === 'object' && logData.text ? logData : { type: 'stdout', text: typeof logData === 'string' ? logData : JSON.stringify(logData) }]);
+        } catch {
+          setLogs((prev) => [...prev.slice(-2000), { type: 'stdout', text: e.data }]);
+        }
+      };
+
+      es.onerror = () => {
+        setConnected(false);
+        es.close();
+        eventSourceRef.current = null;
+        if (cancelled) return;
+        attempt += 1;
+        setReconnectAttempt(attempt);
+        if (attempt <= MAX_RETRIES) {
+          retryTimerRef.current = setTimeout(connect, 3000);
+        }
+      };
     }
 
-    // SSE doesn't support custom headers, so we use query params for auth
-    const finalUrl = agentUrl
-      ? `${url}&token=${encodeURIComponent(AGENT_TOKEN)}`
-      : url;
-    const es = new EventSource(finalUrl);
-    eventSourceRef.current = es;
-
-    es.onopen = () => setConnected(true);
-
-    es.onmessage = (e) => {
-      if (pausedRef.current) return;
-      if (!e.data || e.data === '') return;
-      try {
-        const data = JSON.parse(e.data);
-        const logData = data.data ?? data;
-        setLogs((prev) => [...prev.slice(-2000), typeof logData === 'object' && logData.text ? logData : { type: 'stdout', text: typeof logData === 'string' ? logData : JSON.stringify(logData) }]);
-      } catch {
-        setLogs((prev) => [...prev.slice(-2000), { type: 'stdout', text: e.data }]);
-      }
-    };
-
-    es.onerror = () => {
-      setConnected(false);
-      es.close();
-    };
+    connect();
 
     return () => {
-      es.close();
+      cancelled = true;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      eventSourceRef.current?.close();
       eventSourceRef.current = null;
     };
-  }, [endpointId, containerId, tail]);
+  }, [endpointId, containerId, tail, resourceType, agentUrl]);
 
   useEffect(() => {
     if (!paused) {
@@ -99,8 +121,22 @@ export function LogViewer({ endpointId, containerId, tail = 200, className, reso
     <div className={cn('flex flex-col', className)}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className={cn('w-2 h-2 rounded-full', connected ? 'bg-green-500' : 'bg-red-500')} />
-          <span className="text-sm text-muted-foreground">{connected ? 'Connected' : 'Disconnected'}</span>
+          <span
+            className={cn(
+              'w-2 h-2 rounded-full',
+              connected ? 'bg-green-500' : reconnectAttempt > 0 && reconnectAttempt <= 5 ? 'bg-yellow-500 animate-pulse' : 'bg-red-500',
+            )}
+            aria-hidden="true"
+          />
+          <span className="text-sm text-muted-foreground" aria-live="polite">
+            {connected
+              ? 'Connected'
+              : reconnectAttempt > 0 && reconnectAttempt <= 5
+                ? `Reconnecting (${reconnectAttempt}/5)…`
+                : reconnectAttempt > 5
+                  ? 'Disconnected (retries exhausted)'
+                  : 'Disconnected'}
+          </span>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => setPaused((p) => !p)}>
