@@ -72,8 +72,11 @@ const navSections = [
 
 export function Sidebar() {
   const { sidebarOpen, toggleSidebar } = useAppStore();
-  const userRole = useAuthStore((s) => s.user?.role);
-  const isAdmin = userRole === 'admin';
+  const user = useAuthStore((s) => s.user) as any;
+  // Prefer permission-based gate when the backend ships them; fall back to role.
+  const hasAdminPermission = Array.isArray(user?.permissions)
+    && (user.permissions.includes('admin:*') || user.permissions.includes('admin'));
+  const isAdmin = hasAdminPermission || user?.role === 'admin';
   const { t } = useTranslation();
 
   return (
@@ -98,7 +101,11 @@ export function Sidebar() {
           </div>
         )}
         {sidebarOpen && (
-          <button onClick={toggleSidebar} className="p-1 rounded hover:bg-gray-700 transition-colors">
+          <button
+            onClick={toggleSidebar}
+            aria-label="Collapse sidebar"
+            className="p-1 rounded hover:bg-gray-700 transition-colors"
+          >
             <ChevronLeft className="w-4 h-4" />
           </button>
         )}
@@ -149,7 +156,11 @@ export function Sidebar() {
 
       {!sidebarOpen && (
         <div className="pb-4 flex justify-center">
-          <button onClick={toggleSidebar} className="p-2 rounded hover:bg-gray-700 transition-colors">
+          <button
+            onClick={toggleSidebar}
+            aria-label="Expand sidebar"
+            className="p-2 rounded hover:bg-gray-700 transition-colors"
+          >
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
