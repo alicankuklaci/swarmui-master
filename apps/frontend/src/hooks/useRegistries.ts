@@ -1,5 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { toast } from '@/hooks/useToast';
+
+function errorToast(verb: string) {
+  return (err: any) => {
+    const description = err?.response?.data?.message || err?.message || `Failed to ${verb}`;
+    toast({ variant: 'destructive', title: 'Error', description });
+  };
+}
 
 export function useRegistries() {
   return useQuery({
@@ -21,6 +29,7 @@ export function useCreateRegistry() {
   return useMutation({
     mutationFn: (dto: any) => api.post('/registries', dto).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['registries'] }),
+    onError: errorToast('create registry'),
   });
 }
 
@@ -29,6 +38,7 @@ export function useUpdateRegistry(id: string) {
   return useMutation({
     mutationFn: (dto: any) => api.patch(`/registries/${id}`, dto).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['registries'] }),
+    onError: errorToast('update registry'),
   });
 }
 
@@ -36,7 +46,11 @@ export function useRemoveRegistry() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/registries/${id}`).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['registries'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['registries'] });
+      toast({ title: 'Registry removed' });
+    },
+    onError: errorToast('remove registry'),
   });
 }
 

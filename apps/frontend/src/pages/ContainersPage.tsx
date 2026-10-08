@@ -1,13 +1,15 @@
 import { useAppStore } from '@/stores/app.store';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Play, Square, RotateCw, Trash2, Search, Loader2, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusBadge } from '@/components/docker/StatusBadge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { useContainers, useContainerAction, useRemoveContainer } from '@/hooks/useDocker';
+import { useAppMutation } from '@/hooks/useAppMutation';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 
 
 
@@ -38,11 +40,12 @@ export function ContainersPage() {
   const { data: containers = [], isLoading } = useContainers(endpointId, showAll);
   const actionMutation = useContainerAction(endpointId);
   const removeMutation = useRemoveContainer(endpointId);
-  const queryClient = useQueryClient();
-  const duplicateMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/endpoints/${endpointId}/containers/${id}/duplicate`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['containers', endpointId] }),
-  });
+  const confirm = useConfirm();
+
+  const duplicateMutation = useAppMutation(
+    (id: string) => api.post(`/endpoints/${endpointId}/containers/${id}/duplicate`).then((r) => r.data?.data ?? r.data),
+    { successMessage: 'Container duplicated', invalidate: [['containers', endpointId]] },
+  );
 
   const filtered = (containers || []).filter((c: any) => {
     const name = cleanName(c.Names || []);
@@ -60,14 +63,29 @@ export function ContainersPage() {
     }
   }
 
-  async function handleRemove(id: string) {
-    if (!confirm('Remove this container?')) return;
+  async function handleRemove(id: string, name: string) {
+    const ok = await confirm({
+      title: `Remove container ${name}?`,
+      message: 'This stops the container (if running) and removes it. Volumes are kept.',
+      variant: 'destructive',
+      confirmLabel: 'Remove',
+    });
+    if (!ok) return;
     try {
       setError(null);
       await removeMutation.mutateAsync({ id, force: true });
     } catch (err: any) {
       setError(err?.response?.data?.message || 'Failed to remove container');
     }
+  }
+
+  async function handleDuplicate(id: string, name: string) {
+    const ok = await confirm({
+      title: `Duplicate ${name}?`,
+      message: 'Creates a new container with the same image and config.',
+      confirmLabel: 'Duplicate',
+    });
+    if (ok) duplicateMutation.mutate(id);
   }
 
   return (
@@ -168,6 +186,7 @@ export function ContainersPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Start ${name}`}
                               title="Start"
                               onClick={() => handleAction(container.Id, 'start')}
                               disabled={actionMutation.isPending}
@@ -179,6 +198,7 @@ export function ContainersPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Stop ${name}`}
                               title="Stop"
                               onClick={() => handleAction(container.Id, 'stop')}
                               disabled={actionMutation.isPending}
@@ -190,6 +210,7 @@ export function ContainersPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label={`Restart ${name}`}
                               title="Restart"
                               onClick={() => handleAction(container.Id, 'restart')}
                               disabled={actionMutation.isPending}
@@ -197,24 +218,34 @@ export function ContainersPage() {
                               <RotateCw className="w-4 h-4 text-blue-600" />
                             </Button>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Duplicate"
-                            onClick={() => { if (confirm(`Duplicate container "${name}"?`)) duplicateMutation.mutate(container.Id); }}
-                            disabled={duplicateMutation.isPending}
-                          >
-                            <Copy className="w-4 h-4 text-blue-600" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Remove"
-                            onClick={() => handleRemove(container.Id)}
-                            disabled={removeMutation.isPending}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Duplicate ${name}`}
+                                onClick={() => handleDuplicate(container.Id, name)}
+                                disabled={duplicateMutation.isPending}
+                              >
+                                <Copy className="w-4 h-4 text-blue-600" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Duplicate</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Remove ${name}`}
+                                onClick={() => handleRemove(container.Id, name)}
+                                disabled={removeMutation.isPending}
+                              >
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Remove</TooltipContent>
+                          </Tooltip>
                         </div>
                       </td>
                     </tr>

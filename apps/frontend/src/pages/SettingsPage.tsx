@@ -28,6 +28,11 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       toast({ title: 'Settings saved' });
     },
+    onError: (err: any) => toast({
+      variant: 'destructive',
+      title: 'Error',
+      description: err?.response?.data?.message || 'Failed to save settings',
+    }),
   });
 
   const testEmailMutation = useMutation({
@@ -36,6 +41,11 @@ export function SettingsPage() {
       const r = res.data.data || res.data;
       toast({ title: r.success ? 'Email sent!' : 'Email failed', description: r.message, variant: r.success ? 'default' : 'destructive' });
     },
+    onError: (err: any) => toast({
+      variant: 'destructive',
+      title: 'Error',
+      description: err?.response?.data?.message || 'Failed to send test email',
+    }),
   });
 
   const testWebhookMutation = useMutation({
@@ -44,6 +54,11 @@ export function SettingsPage() {
       const r = res.data.data || res.data;
       toast({ title: r.success ? 'Webhook OK!' : 'Webhook failed', description: r.message, variant: r.success ? 'default' : 'destructive' });
     },
+    onError: (err: any) => toast({
+      variant: 'destructive',
+      title: 'Error',
+      description: err?.response?.data?.message || 'Failed to test webhook',
+    }),
   });
 
   const { register, handleSubmit, control, reset, watch } = useForm();

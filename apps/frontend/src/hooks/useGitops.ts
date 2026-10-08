@@ -1,5 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { toast } from '@/hooks/useToast';
+
+function errorToast(verb: string) {
+  return (err: any) => {
+    const description = err?.response?.data?.message || err?.message || `Failed to ${verb}`;
+    toast({ variant: 'destructive', title: 'Error', description });
+  };
+}
 
 // ─── Deployments ──────────────────────────────────────────────────────────────
 
@@ -27,6 +35,7 @@ export function useCreateGitopsDeployment() {
   return useMutation({
     mutationFn: (dto: any) => api.post('/gitops', dto).then((r) => r.data?.data ?? r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gitops-deployments'] }),
+    onError: errorToast('create deployment'),
   });
 }
 
@@ -38,6 +47,7 @@ export function useUpdateGitopsDeployment(id: string) {
       qc.invalidateQueries({ queryKey: ['gitops-deployments'] });
       qc.invalidateQueries({ queryKey: ['gitops-deployment', id] });
     },
+    onError: errorToast('update deployment'),
   });
 }
 
@@ -45,7 +55,11 @@ export function useRemoveGitopsDeployment() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/gitops/${id}`).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['gitops-deployments'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['gitops-deployments'] });
+      toast({ title: 'Deployment removed' });
+    },
+    onError: errorToast('remove deployment'),
   });
 }
 
@@ -57,6 +71,7 @@ export function useTriggerGitopsDeploy() {
       qc.invalidateQueries({ queryKey: ['gitops-deployment', id] });
       qc.invalidateQueries({ queryKey: ['gitops-deployments'] });
     },
+    onError: errorToast('trigger deploy'),
   });
 }
 
@@ -83,7 +98,11 @@ export function useCreateGitCredentials() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (dto: any) => api.post('/gitops/credentials', dto).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['git-credentials'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['git-credentials'] });
+      toast({ title: 'Git credentials saved' });
+    },
+    onError: errorToast('save credentials'),
   });
 }
 
@@ -91,6 +110,10 @@ export function useRemoveGitCredentials() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/gitops/credentials/${id}`).then((r) => r.data?.data ?? r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['git-credentials'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['git-credentials'] });
+      toast({ title: 'Credentials removed' });
+    },
+    onError: errorToast('remove credentials'),
   });
 }

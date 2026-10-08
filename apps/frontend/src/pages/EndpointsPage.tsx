@@ -15,6 +15,9 @@ import { formatDate } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
 import { useAppStore } from '@/stores/app.store';
 import { useNavigate } from 'react-router-dom';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useAppMutation } from '@/hooks/useAppMutation';
 
 export function EndpointsPage() {
   const [search, setSearch] = useState('');
@@ -22,6 +25,7 @@ export function EndpointsPage() {
   const queryClient = useQueryClient();
   const { selectedEndpointId, setSelectedEndpoint } = useAppStore();
   const navigate = useNavigate();
+  const confirm = useConfirm();
 
   const { data, isLoading } = useQuery({
     queryKey: ['endpoints', search],
@@ -51,14 +55,37 @@ export function EndpointsPage() {
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/endpoints/${id}`),
-    onSuccess: (_, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ['endpoints'] });
-      if (selectedEndpointId === deletedId) setSelectedEndpoint(null);
-      toast({ title: 'Endpoint deleted' });
+  const deleteMutation = useAppMutation(
+    (id: string) => api.delete(`/endpoints/${id}`).then((r) => r.data?.data ?? r.data),
+    {
+      successMessage: 'Endpoint deleted',
+      invalidate: [['endpoints'], ['endpoints-auto']],
+      onSuccess: (_: unknown, deletedId: string) => {
+        if (selectedEndpointId === deletedId) setSelectedEndpoint(null);
+      },
     },
-  });
+  );
+
+  async function requestDelete(endpoint: any) {
+    const ok = await confirm({
+      title: `Delete endpoint ${endpoint.name}?`,
+      message: 'This disconnects the Docker daemon from SwarmUI. Nothing is deleted on the host.',
+      variant: 'destructive',
+      confirmLabel: 'Delete',
+      typeToConfirm: { phrase: endpoint.name },
+      cascade: (
+        <div className="text-xs text-muted-foreground">
+          <p className="font-medium text-foreground mb-1">What breaks:</p>
+          <ul className="list-disc pl-4 space-y-0.5">
+            <li>Any page scoped to this endpoint stops loading data</li>
+            <li>Stored stack env-vars and webhook tokens remain (re-add endpoint to reuse)</li>
+            <li>Users with this endpoint active will be reset to the first available one</li>
+          </ul>
+        </div>
+      ),
+    });
+    if (ok) deleteMutation.mutate(endpoint._id);
+  }
 
   const testMutation = useMutation({
     mutationFn: (id: string) => api.post(`/endpoints/${id}/test`),
@@ -162,12 +189,34 @@ export function EndpointsPage() {
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => testMutation.mutate(endpoint._id)} disabled={testMutation.isPending}>
-                            <RefreshCw className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteMutation.mutate(endpoint._id)}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Test connection to ${endpoint.name}`}
+                                onClick={() => testMutation.mutate(endpoint._id)}
+                                disabled={testMutation.isPending}
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Test connection</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Delete endpoint ${endpoint.name}`}
+                                className="text-destructive"
+                                onClick={() => requestDelete(endpoint)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Delete endpoint</TooltipContent>
+                          </Tooltip>
                         </div>
                       </TableCell>
                     </TableRow>

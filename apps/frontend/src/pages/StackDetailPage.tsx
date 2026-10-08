@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowLeftIcon, CopyIcon, CheckIcon, PencilIcon, XIcon, CheckCircleIcon, AlertCircleIcon, Webhook, Eye, EyeOff, Trash2, RefreshCw } from 'lucide-react';
 import { useStackWebhook, type StackWebhookData } from '@/hooks/useStackWebhook';
+import { useConfirm } from '@/components/ui/confirm-dialog';
+import { ErrorBanner } from '@/components/ui/error-banner';
 import yaml from 'js-yaml';
 
 function useEndpoints() {
@@ -69,11 +71,42 @@ export function StackDetailPage() {
   const [editError, setEditError] = useState('');
   const [yamlValid, setYamlValid] = useState<boolean | null>(null);
   const [deploySuccess, setDeploySuccess] = useState(false);
+  const confirm = useConfirm();
+
+  // Esc to close editor; prompt if dirty.
+  useEffect(() => {
+    if (!editMode) return;
+    const handler = async (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const dirty = editContent !== (composeContent ?? '');
+      if (!dirty) { setEditMode(false); return; }
+      const ok = await confirm({
+        title: 'Discard changes?',
+        message: 'You have unsaved edits in this stack.',
+        variant: 'destructive',
+        confirmLabel: 'Discard',
+      });
+      if (ok) setEditMode(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editMode, editContent, composeContent, confirm]);
 
   const editMutation = useMutation({
     mutationFn: (content: string) =>
-      api.put(`/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(name ?? '')}`, { composeContent: content }),
-    onSuccess: () => {
+      api.put(`/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(name ?? '')}`, { composeContent: content })
+        .then((r) => r.data?.data ?? r.data),
+    onSuccess: (result: any) => {
+      // Per-service failure check — API success does not mean every service deployed
+      const failed = (result?.services ?? []).filter((s: any) => s?.action === 'failed');
+      if (failed.length > 0) {
+        setEditError(
+          `Deploy yarıda kaldı — ${failed.length} servis başarısız:\n` +
+          failed.map((s: any) => `• ${s.name}: ${s.error ?? 'unknown error'}`).join('\n')
+        );
+        queryClient.invalidateQueries({ queryKey: ['stack', endpointId, name] });
+        return;
+      }
       setEditMode(false);
       setEditError('');
       setDeploySuccess(true);
@@ -124,7 +157,12 @@ export function StackDetailPage() {
   // ── TAM SAYFA EDİTÖR MODU ──────────────────────────────────────────────
   if (editMode) {
     return (
-      <div className="flex flex-col h-screen bg-background">
+      <div
+        className="fixed inset-0 z-50 flex flex-col bg-background"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Stack editor"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-3 border-b bg-card shrink-0">
           <div className="flex items-center gap-3">
@@ -158,7 +196,7 @@ export function StackDetailPage() {
 
         {/* Hata / başarı bandı */}
         {editError && (
-          <div className="px-6 py-2 bg-destructive/10 border-b border-destructive/30 text-sm text-destructive font-mono shrink-0">
+          <div className="px-6 py-2 bg-destructive/10 border-b border-destructive/30 text-sm text-destructive font-mono shrink-0 max-h-40 overflow-y-auto whitespace-pre-wrap">
             ⚠️ {editError}
           </div>
         )}
@@ -284,25 +322,28 @@ export function StackDetailPage() {
             <RefreshCw className={`h-4 w-4 mr-2 ${webhookGenerate.isPending ? 'animate-spin' : ''}`} />
             Webhook Oluştur
           </Button>
-        ) : (
+        ) : (() => {
+          const base = window.location.origin;
+          const webhookUrl = `${base}/api/v1/webhooks/stacks/${webhookQuery.data.token}`;
+          const maskedUrl = `${base}/api/v1/webhooks/stacks/${'•'.repeat(32)}`;
+          return (
           <div className="space-y-4">
             {/* Token URL */}
             <div className="space-y-2">
               <label className="text-xs text-muted-foreground uppercase tracking-wide">Webhook URL</label>
               <div className="flex items-center gap-2">
                 <code className="flex-1 bg-muted border rounded px-3 py-2 text-sm font-mono text-green-400 truncate min-w-0">
-                  {showToken
-                    ? `http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data.token}`
-                    : `http://212.83.131.111:1519/api/v1/webhooks/stacks/${'•'.repeat(32)}`}
+                  {showToken ? webhookUrl : maskedUrl}
                 </code>
-                <Button variant="ghost" size="sm" onClick={() => setShowToken(!showToken)}>
+                <Button variant="ghost" size="sm" aria-label={showToken ? 'Hide webhook token' : 'Show webhook token'} onClick={() => setShowToken(!showToken)}>
                   {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label="Copy webhook URL"
                   onClick={() => {
-                    navigator.clipboard.writeText(`http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data!.token}`);
+                    navigator.clipboard.writeText(webhookUrl);
                     setWebhookCopied(true);
                     setTimeout(() => setWebhookCopied(false), 2000);
                   }}
@@ -312,7 +353,16 @@ export function StackDetailPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => { if (confirm('Webhook iptal edilsin mi?')) webhookRevoke.mutate(); }}
+                  aria-label="Revoke webhook"
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: 'Revoke webhook?',
+                      message: 'The current URL will stop working. You can generate a new one afterwards.',
+                      variant: 'destructive',
+                      confirmLabel: 'Revoke',
+                    });
+                    if (ok) webhookRevoke.mutate();
+                  }}
                   className="text-destructive hover:text-destructive"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -325,13 +375,14 @@ export function StackDetailPage() {
               <label className="text-xs text-muted-foreground uppercase tracking-wide">cURL Örneği</label>
               <div className="relative">
                 <pre className="bg-muted rounded p-3 text-sm font-mono text-muted-foreground overflow-x-auto">{`curl -X POST \
-  "http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data.token}"`}</pre>
+  "${webhookUrl}"`}</pre>
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label="Copy cURL snippet"
                   className="absolute top-2 right-2 h-7 w-7 p-0"
                   onClick={() => navigator.clipboard.writeText(`curl -X POST \\
-  "http://212.83.131.111:1519/api/v1/webhooks/stacks/${webhookQuery.data!.token}"`)}
+  "${webhookUrl}"`)}
                 >
                   <CopyIcon className="h-3.5 w-3.5" />
                 </Button>
@@ -349,6 +400,7 @@ export function StackDetailPage() {
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label="Copy GitHub Actions snippet"
                   className="absolute top-2 right-2 h-7 w-7 p-0"
                   onClick={() => navigator.clipboard.writeText(`- name: Deploy to Swarm
   run: |
@@ -363,7 +415,8 @@ export function StackDetailPage() {
               </p>
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Compose dosyası */}

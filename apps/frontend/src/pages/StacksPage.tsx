@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/app.store';
 import { api } from '@/lib/api';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useStacks, useDeployStack, useRemoveStack } from '@/hooks/useDocker';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { PlusIcon, PencilIcon, Trash2Icon, XIcon, CheckCircleIcon, AlertCircleIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import yaml from 'js-yaml';
 
 const PLACEHOLDER = `version: "3.8"
@@ -45,6 +46,26 @@ export function StacksPage() {
   // Remove dialog
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
+  const confirm = useConfirm();
+
+  // Esc to close editor with dirty-check.
+  useEffect(() => {
+    if (editorMode === 'none') return;
+    const handler = async (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const dirty = composeContent.trim() && composeContent !== PLACEHOLDER;
+      if (!dirty) { setEditorMode('none'); return; }
+      const ok = await confirm({
+        title: 'Discard changes?',
+        message: 'You have unsaved edits.',
+        variant: 'destructive',
+        confirmLabel: 'Discard',
+      });
+      if (ok) setEditorMode('none');
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [editorMode, composeContent, confirm]);
 
   function openNew() {
     setStackName(''); setComposeContent(PLACEHOLDER);
@@ -129,14 +150,16 @@ export function StacksPage() {
 
     setDeploying(true);
     try {
+      let result: any;
       if (editorMode === 'new') {
-        await deployStack.mutateAsync({ name: stackName.trim(), composeContent: finalContent });
+        result = await deployStack.mutateAsync({ name: stackName.trim(), composeContent: finalContent });
       } else {
         // Update — force update ile
-        await api.put(
+        const putRes = await api.put(
           `/endpoints/${endpointId}/swarm/stacks/${encodeURIComponent(stackName)}`,
           { composeContent: finalContent, forceUpdate }
         );
+        result = putRes.data?.data ?? putRes.data;
         if (forceUpdate) {
           // Servis başına force update — backend desteklemiyorsa frontend'den yap
           try {
@@ -154,6 +177,18 @@ export function StacksPage() {
           } catch { /* non-critical */ }
         }
       }
+
+      // Per-service failure check — API success (200/201) does not mean every service deployed
+      const failedServices = (result?.services ?? []).filter((s: any) => s?.action === 'failed');
+      if (failedServices.length > 0) {
+        const summary = failedServices
+          .map((s: any) => `• ${s.name}: ${s.error ?? 'unknown error'}`)
+          .join('\n');
+        setDeployError(`Deploy yarıda kaldı — ${failedServices.length} servis başarısız:\n${summary}`);
+        refetch();
+        return;
+      }
+
       setEditorMode('none');
       refetch();
     } catch (err: any) {
@@ -174,7 +209,12 @@ export function StacksPage() {
   // ── TAM SAYFA EDİTÖR ──────────────────────────────────────────────────
   if (editorMode !== 'none') {
     return (
-      <div className="flex flex-col h-screen bg-background">
+      <div
+        className="fixed inset-0 z-50 flex flex-col bg-background"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Stack editor"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-3 border-b bg-card shrink-0">
           <div className="flex items-center gap-3">
@@ -231,7 +271,7 @@ export function StacksPage() {
 
         {/* Hata / başarı bandı */}
         {deployError && (
-          <div className="px-6 py-2 bg-destructive/10 border-b border-destructive/30 text-sm text-destructive font-mono shrink-0">
+          <div className="px-6 py-2 bg-destructive/10 border-b border-destructive/30 text-sm text-destructive font-mono shrink-0 max-h-40 overflow-y-auto whitespace-pre-wrap">
             ⚠️ {deployError}
           </div>
         )}
@@ -319,43 +359,6 @@ export function StacksPage() {
             </div>
           )}
         </div>
-
-        {/* Environment Variables Panel */}
-        {showEnvPanel && (
-          <div className="border-t bg-card px-6 py-4 shrink-0 space-y-3 max-h-72 overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold">🔧 Environment Variables</span>
-              <span className="text-xs text-muted-foreground">Tüm servislere otomatik enjekte edilir</span>
-            </div>
-            {envVars.map((ev, i) => (
-              <div key={i} className="flex gap-2 items-center">
-                <input
-                  className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm font-mono text-yellow-300 focus:outline-none focus:border-blue-500 placeholder-gray-600"
-                  placeholder="KEY"
-                  value={ev.key}
-                  onChange={e => setEnvVars(prev => prev.map((v, j) => j === i ? {...v, key: e.target.value} : v))}
-                />
-                <span className="text-gray-500 font-mono">=</span>
-                <input
-                  className="flex-2 min-w-0 w-64 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm font-mono text-green-300 focus:outline-none focus:border-blue-500 placeholder-gray-600"
-                  placeholder="değer"
-                  value={ev.value}
-                  onChange={e => setEnvVars(prev => prev.map((v, j) => j === i ? {...v, value: e.target.value} : v))}
-                />
-                <button
-                  onClick={() => setEnvVars(prev => prev.filter((_, j) => j !== i))}
-                  className="text-gray-500 hover:text-red-400 px-2 text-lg leading-none"
-                >×</button>
-              </div>
-            ))}
-            <button
-              onClick={() => setEnvVars(prev => [...prev, {key: '', value: ''}])}
-              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-            >
-              + Değişken Ekle
-            </button>
-          </div>
-        )}
 
         {/* Alt bilgi */}
         <div className="px-6 py-2 border-t bg-card text-xs text-muted-foreground shrink-0 flex gap-6">
