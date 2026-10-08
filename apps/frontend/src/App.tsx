@@ -1,6 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAutoSelectEndpoint } from '@/hooks/useDocker';
 import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { ConfirmProvider } from '@/components/ui/confirm-dialog';
 import { AppShell } from '@/components/layout/AppShell';
 import { LoginPage } from '@/pages/LoginPage';
 import { DashboardPage } from '@/pages/DashboardPage';
@@ -36,6 +38,7 @@ import { TwoFactorPage } from '@/pages/TwoFactorPage';
 import { ApiKeysPage } from '@/pages/ApiKeysPage';
 import { EventsPage } from '@/pages/EventsPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { RoleRoute } from '@/components/auth/RoleRoute';
 
 import React from 'react';
 
@@ -47,15 +50,32 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
   }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // eslint-disable-next-line no-console
+    console.error('ErrorBoundary caught:', error, info);
+  }
   render() {
     if (this.state.hasError) {
       return (
-        <div className="p-8">
-          <h2 className="text-xl font-bold text-red-500 mb-2">Something went wrong</h2>
-          <p className="text-sm text-muted-foreground">{this.state.error?.message}</p>
-          <button className="mt-4 px-4 py-2 bg-blue-600 text-white rounded" onClick={() => this.setState({ hasError: false, error: null })}>
-            Try again
-          </button>
+        <div className="p-8 max-w-xl mx-auto" role="alert">
+          <h2 className="text-xl font-bold text-destructive mb-2">Something went wrong</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            {this.state.error?.message ?? 'An unexpected error occurred.'}
+          </p>
+          <div className="flex gap-2">
+            <button
+              className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+              onClick={() => this.setState({ hasError: false, error: null })}
+            >
+              Try again
+            </button>
+            <button
+              className="px-4 py-2 border rounded hover:bg-accent transition-colors"
+              onClick={() => window.location.reload()}
+            >
+              Reload page
+            </button>
+          </div>
         </div>
       );
     }
@@ -63,69 +83,84 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
   }
 }
 
-
-
 function AutoEndpoint() {
   useAutoSelectEndpoint();
   return null;
 }
 
+// Admin-only wrapper around a route element.
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  return <RoleRoute allow={['admin']}>{children}</RoleRoute>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <AutoEndpoint />
-              <AppShell />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
-          {/* Docker */}
-          <Route path="containers" element={<ContainersPage />} />
-          <Route path="containers/:id" element={<ContainerDetailPage />} />
-          <Route path="images" element={<ImagesPage />} />
-          <Route path="networks" element={<NetworksPage />} />
-          <Route path="volumes" element={<VolumesPage />} />
-          <Route path="events" element={<EventsPage />} />
-          {/* Swarm */}
-          <Route path="swarm" element={<SwarmPage />} />
-          <Route path="nodes" element={<NodesPage />} />
-          <Route path="visualizer" element={<ClusterVisualizerPage />} />
-          <Route path="audit-log" element={<AuditLogPage />} />
-          <Route path="services" element={<ServicesPage />} />
-          <Route path="services/:id" element={<ServiceDetailPage />} />
-          <Route path="stacks" element={<StacksPage />} />
-          <Route path="stacks/:name" element={<StackDetailPage />} />
-          {/* Platform */}
-          <Route path="registries" element={<RegistriesPage />} />
-          <Route path="templates" element={<ErrorBoundary><TemplatesPage /></ErrorBoundary>} />
-          <Route path="gitops" element={<ErrorBoundary><GitopsPage /></ErrorBoundary>} />
-          <Route path="gitops/credentials" element={<GitCredentialsPage />} />
-          <Route path="gitops/:id" element={<GitopsDetailPage />} />
-          {/* Enterprise */}
-          <Route path="backup" element={<ErrorBoundary><BackupPage /></ErrorBoundary>} />
-          <Route path="security" element={<ErrorBoundary><SecurityPage /></ErrorBoundary>} />
-          <Route path="api-keys" element={<ApiKeysPage />} />
-          <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="2fa" element={<TwoFactorPage />} />
-          {/* Admin */}
-          <Route path="users" element={<UsersPage />} />
-          <Route path="teams" element={<TeamsPage />} />
-          <Route path="roles" element={<RolesPage />} />
-          <Route path="endpoints" element={<EndpointsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="activity-logs" element={<ActivityLogsPage />} />
-          <Route path="auth-logs" element={<AuthLogsPage />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-      <Toaster />
+      <TooltipProvider delayDuration={200}>
+        <ConfirmProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <AutoEndpoint />
+                  <AppShell />
+                </ProtectedRoute>
+              }
+            >
+              <Route
+                element={
+                  <ErrorBoundary>
+                    <Outlet />
+                  </ErrorBoundary>
+                }
+              >
+                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route path="dashboard" element={<DashboardPage />} />
+                {/* Docker */}
+                <Route path="containers" element={<ContainersPage />} />
+                <Route path="containers/:id" element={<ContainerDetailPage />} />
+                <Route path="images" element={<ImagesPage />} />
+                <Route path="networks" element={<NetworksPage />} />
+                <Route path="volumes" element={<VolumesPage />} />
+                <Route path="events" element={<EventsPage />} />
+                {/* Swarm */}
+                <Route path="swarm" element={<SwarmPage />} />
+                <Route path="nodes" element={<NodesPage />} />
+                <Route path="visualizer" element={<ClusterVisualizerPage />} />
+                <Route path="audit-log" element={<AuditLogPage />} />
+                <Route path="services" element={<ServicesPage />} />
+                <Route path="services/:id" element={<ServiceDetailPage />} />
+                <Route path="stacks" element={<StacksPage />} />
+                <Route path="stacks/:name" element={<StackDetailPage />} />
+                {/* Platform */}
+                <Route path="registries" element={<RegistriesPage />} />
+                <Route path="templates" element={<TemplatesPage />} />
+                <Route path="gitops" element={<GitopsPage />} />
+                <Route path="gitops/credentials" element={<GitCredentialsPage />} />
+                <Route path="gitops/:id" element={<GitopsDetailPage />} />
+                {/* Enterprise */}
+                <Route path="backup" element={<BackupPage />} />
+                <Route path="security" element={<SecurityPage />} />
+                <Route path="api-keys" element={<AdminRoute><ApiKeysPage /></AdminRoute>} />
+                <Route path="notifications" element={<NotificationsPage />} />
+                <Route path="2fa" element={<TwoFactorPage />} />
+                {/* Admin */}
+                <Route path="users" element={<AdminRoute><UsersPage /></AdminRoute>} />
+                <Route path="teams" element={<AdminRoute><TeamsPage /></AdminRoute>} />
+                <Route path="roles" element={<AdminRoute><RolesPage /></AdminRoute>} />
+                <Route path="endpoints" element={<AdminRoute><EndpointsPage /></AdminRoute>} />
+                <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
+                <Route path="activity-logs" element={<AdminRoute><ActivityLogsPage /></AdminRoute>} />
+                <Route path="auth-logs" element={<AdminRoute><AuthLogsPage /></AdminRoute>} />
+              </Route>
+            </Route>
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+          <Toaster />
+        </ConfirmProvider>
+      </TooltipProvider>
     </BrowserRouter>
   );
 }
