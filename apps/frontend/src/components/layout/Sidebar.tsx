@@ -4,9 +4,11 @@ import {
   Activity, ChevronLeft, ChevronRight, Container, Network,
   HardDrive, Image, Layers, GitBranch, Grid3X3,
   LayoutGrid, Package, GitMerge, HardDriveDownload, Lock, KeyRound, Bell,
-  Radio,
+  Radio, Sliders, Send, Zap,
  ClipboardList,} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
+import { api, unwrap } from '@/lib/api';
 import { useAppStore } from '@/stores/app.store';
 import { useAuthStore } from '@/stores/auth.store';
 import { cn } from '@/lib/utils';
@@ -49,12 +51,23 @@ const navSections = [
     ],
   },
   {
+    titleKey: 'nav.observability',
+    items: [
+      { to: '/monitoring', icon: Activity, labelKey: 'nav.monitoring', defaultLabel: 'Monitoring' },
+      { to: '/monitoring/live', icon: Zap, labelKey: 'nav.liveMonitoring', defaultLabel: 'Live view' },
+      { to: '/monitoring/uptime', icon: Radio, labelKey: 'nav.uptime', defaultLabel: 'Uptime' },
+      { to: '/monitoring/alarms', icon: Bell, labelKey: 'nav.alarms', defaultLabel: 'Alarms', firingBadge: true },
+      { to: '/monitoring/rules', icon: Sliders, labelKey: 'nav.alarmRules', defaultLabel: 'Alarm Rules' },
+    ],
+  },
+  {
     titleKey: 'nav.enterprise',
     items: [
       { to: '/backup', icon: HardDriveDownload, labelKey: 'nav.backup' },
       { to: '/security', icon: Lock, labelKey: 'nav.security' },
       { to: '/api-keys', icon: KeyRound, labelKey: 'nav.apiKeys' },
       { to: '/notifications', icon: Bell, labelKey: 'nav.notifications' },
+      { to: '/notifications/channels', icon: Send, labelKey: 'nav.notificationChannels', defaultLabel: 'Notification Channels' },
     ],
   },
   {
@@ -78,6 +91,18 @@ export function Sidebar() {
     && (user.permissions.includes('admin:*') || user.permissions.includes('admin'));
   const isAdmin = hasAdminPermission || user?.role === 'admin';
   const { t } = useTranslation();
+
+  // Firing-alarm badge for the Alarms nav item. Only queries when the user
+  // has access to monitoring endpoints (admin/operator) to avoid 403 noise.
+  const canSeeMonitoring = isAdmin || user?.role === 'operator';
+  const firingQuery = useQuery({
+    queryKey: ['monitoring', 'firing-count-sidebar'],
+    queryFn: () => api.get('/monitoring/alarms/firing-count').then((r) => unwrap<{ count: number }>(r)),
+    refetchInterval: 30_000,
+    retry: false,
+    enabled: canSeeMonitoring,
+  });
+  const firingCount = firingQuery.data?.count ?? 0;
 
   return (
     <aside
@@ -112,7 +137,11 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 py-2 overflow-y-auto">
-        {navSections.filter((section) => section.titleKey !== 'nav.admin' || isAdmin).map((section, si) => (
+        {navSections.filter((section) => {
+          if (section.titleKey === 'nav.admin') return isAdmin;
+          if (section.titleKey === 'nav.observability') return canSeeMonitoring;
+          return true;
+        }).map((section, si) => (
           <div key={si} className="mb-1">
             {section.titleKey && sidebarOpen && (
               <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -122,10 +151,11 @@ export function Sidebar() {
             {section.titleKey && !sidebarOpen && (
               <div className="my-1 mx-3 border-t border-gray-700" />
             )}
-            {section.items.map((item) => (
+            {section.items.map((item: any) => (
               <NavLink
                 key={item.to}
                 to={item.to}
+                end={item.to === '/monitoring'}
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-3 px-4 py-2.5 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors',
@@ -135,7 +165,21 @@ export function Sidebar() {
                 }
               >
                 <item.icon className="w-5 h-5 flex-shrink-0" />
-                {sidebarOpen && <span className="text-sm font-medium">{t(item.labelKey)}</span>}
+                {sidebarOpen && (
+                  <span className="text-sm font-medium flex-1 flex items-center justify-between">
+                    <span>{String(t(item.labelKey, { defaultValue: item.defaultLabel || item.labelKey }))}</span>
+                    {item.firingBadge && firingCount > 0 && (
+                      <span className="ml-2 bg-red-500 text-white text-[10px] font-semibold rounded-full px-1.5 py-0.5 tabular-nums">
+                        {firingCount}
+                      </span>
+                    )}
+                  </span>
+                )}
+                {!sidebarOpen && item.firingBadge && firingCount > 0 && (
+                  <span className="absolute right-2 top-2 bg-red-500 text-white text-[9px] rounded-full px-1 tabular-nums">
+                    {firingCount}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>

@@ -37,6 +37,17 @@ import { NotificationsPage } from '@/pages/NotificationsPage';
 import { TwoFactorPage } from '@/pages/TwoFactorPage';
 import { ApiKeysPage } from '@/pages/ApiKeysPage';
 import { EventsPage } from '@/pages/EventsPage';
+import { MonitoringOverviewPage } from '@/pages/monitoring/MonitoringOverviewPage';
+import { LiveMonitoringPage } from '@/pages/monitoring/LiveMonitoringPage';
+import { NodeDetailPage as MonitoringNodeDetailPage } from '@/pages/monitoring/NodeDetailPage';
+import { ContainersMonitoringPage } from '@/pages/monitoring/ContainersMonitoringPage';
+import { ContainerDetailPage as MonitoringContainerDetailPage } from '@/pages/monitoring/ContainerDetailPage';
+import { UptimeChecksPage } from '@/pages/monitoring/UptimeChecksPage';
+import { UptimeCheckDetailPage } from '@/pages/monitoring/UptimeCheckDetailPage';
+import { AlarmRulesPage } from '@/pages/monitoring/AlarmRulesPage';
+import { AlarmsPage } from '@/pages/monitoring/AlarmsPage';
+import { AlarmDetailPage } from '@/pages/monitoring/AlarmDetailPage';
+import { NotificationChannelsPage } from '@/pages/notifications/NotificationChannelsPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { RoleRoute } from '@/components/auth/RoleRoute';
 
@@ -93,6 +104,11 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <RoleRoute allow={['admin']}>{children}</RoleRoute>;
 }
 
+// Admin + operator for observability pages.
+function OpsRoute({ children }: { children: React.ReactNode }) {
+  return <RoleRoute allow={['admin', 'operator']}>{children}</RoleRoute>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -140,6 +156,18 @@ export default function App() {
                 <Route path="gitops" element={<GitopsPage />} />
                 <Route path="gitops/credentials" element={<GitCredentialsPage />} />
                 <Route path="gitops/:id" element={<GitopsDetailPage />} />
+                {/* Observability */}
+                <Route path="monitoring" element={<OpsRoute><MonitoringOverviewPage /></OpsRoute>} />
+                <Route path="monitoring/live" element={<OpsRoute><LiveMonitoringPage /></OpsRoute>} />
+                <Route path="monitoring/nodes/:nodeId" element={<OpsRoute><MonitoringNodeDetailPage /></OpsRoute>} />
+                <Route path="monitoring/containers" element={<OpsRoute><ContainersMonitoringPage /></OpsRoute>} />
+                <Route path="monitoring/containers/:id" element={<OpsRoute><MonitoringContainerDetailPage /></OpsRoute>} />
+                <Route path="monitoring/uptime" element={<OpsRoute><UptimeChecksPage /></OpsRoute>} />
+                <Route path="monitoring/uptime/:id" element={<OpsRoute><UptimeCheckDetailPage /></OpsRoute>} />
+                <Route path="monitoring/rules" element={<OpsRoute><AlarmRulesPage /></OpsRoute>} />
+                <Route path="monitoring/alarms" element={<OpsRoute><AlarmsPage /></OpsRoute>} />
+                <Route path="monitoring/alarms/:id" element={<OpsRoute><AlarmDetailPage /></OpsRoute>} />
+                <Route path="notifications/channels" element={<OpsRoute><NotificationChannelsPage /></OpsRoute>} />
                 {/* Enterprise */}
                 <Route path="backup" element={<BackupPage />} />
                 <Route path="security" element={<SecurityPage />} />
