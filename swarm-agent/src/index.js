@@ -47,6 +47,15 @@ function authMiddleware(req, res, next) {
 app.get('/health', (_req, res) => res.json({ ok: true, version: '2.0.0' }));
 app.use(authMiddleware);
 
+// SwarmUI monitoring metrics endpoints (served before the Docker proxy so
+// they don't get forwarded to the Docker socket).
+try {
+  const metricsRouter = require('./metrics');
+  metricsRouter.register(app, docker);
+} catch (err) {
+  console.error('[metrics] Failed to register metrics endpoints:', err.message);
+}
+
 // HTTP proxy for all Docker API requests
 const proxy = httpProxy.createProxyServer({});
 const target = { socketPath: DOCKER_SOCKET, host: 'localhost' };
