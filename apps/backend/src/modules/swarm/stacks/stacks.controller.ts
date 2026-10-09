@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Put, Delete, Param, Body,
   UseGuards, HttpCode, HttpStatus, Res,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { Response } from 'express';
 import { StacksService } from './stacks.service';
 import { Public } from '../../../common/decorators/public.decorator';
@@ -10,6 +11,9 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RbacGuard } from '../../../common/guards/rbac.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 
+@ApiTags('Stacks')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @Controller('endpoints/:endpointId/swarm/stacks')
 @UseGuards(JwtAuthGuard, RbacGuard)
 export class StacksController {
@@ -110,6 +114,7 @@ export class StacksController {
 
 }
 
+@ApiTags('Stack Webhooks')
 @Controller('webhooks/stacks')
 export class StackWebhooksController {
   constructor(private readonly stacksService: StacksService) {}

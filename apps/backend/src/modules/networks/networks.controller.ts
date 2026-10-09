@@ -2,11 +2,15 @@ import {
   Controller, Get, Post, Delete, Param, Query, Body,
   UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { NetworksService } from './networks.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RbacGuard } from '../../common/guards/rbac.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 
+@ApiTags('Networks')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @Controller('endpoints/:endpointId/networks')
 @UseGuards(JwtAuthGuard, RbacGuard)
 export class NetworksController {

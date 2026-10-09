@@ -2,11 +2,15 @@ import {
   Controller, Get, Post, Delete, Param, Query, Body,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { VolumesService } from './volumes.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RbacGuard } from '../../common/guards/rbac.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 
+@ApiTags('Volumes')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @Controller('endpoints/:endpointId/volumes')
 @UseGuards(JwtAuthGuard, RbacGuard)
 export class VolumesController {

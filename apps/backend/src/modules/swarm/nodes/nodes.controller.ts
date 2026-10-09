@@ -2,11 +2,15 @@ import {
   Controller, Get, Post, Delete, Param, Query, Body,
   UseGuards, HttpCode, HttpStatus, Patch,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { NodesService } from './nodes.service';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RbacGuard } from '../../../common/guards/rbac.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 
+@ApiTags('Swarm Nodes')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @Controller('endpoints/:endpointId/swarm/nodes')
 @UseGuards(JwtAuthGuard, RbacGuard)
 export class NodesController {
