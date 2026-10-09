@@ -2,12 +2,16 @@ import {
   Controller, Get, Post, Delete, Param, Query, Body,
   Sse, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { ImagesService } from './images.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RbacGuard } from '../../common/guards/rbac.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 
+@ApiTags('Images')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @Controller('endpoints/:endpointId/images')
 @UseGuards(JwtAuthGuard, RbacGuard)
 export class ImagesController {

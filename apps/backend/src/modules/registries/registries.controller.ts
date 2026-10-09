@@ -1,10 +1,14 @@
 import {
   Controller, Get, Post, Patch, Delete, Param, Body, UseGuards,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RegistriesService } from './registries.service';
 import { CreateRegistryDto, UpdateRegistryDto } from './dto/registry.dto';
 
+@ApiTags('Registries')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @UseGuards(JwtAuthGuard)
 @Controller('registries')
 export class RegistriesController {

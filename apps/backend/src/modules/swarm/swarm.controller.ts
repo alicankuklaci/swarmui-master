@@ -1,9 +1,13 @@
 import {
   Controller, Get, Post, Body, Param, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { SwarmService } from './swarm.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
+@ApiTags('Swarm')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @Controller('endpoints/:endpointId/swarm')
 @UseGuards(JwtAuthGuard)
 export class SwarmController {

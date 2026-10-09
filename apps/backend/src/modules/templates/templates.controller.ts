@@ -1,11 +1,15 @@
 import {
   Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TemplatesService } from './templates.service';
 import { TemplateDeployService } from './template-deploy.service';
 import { CreateTemplateDto, UpdateTemplateDto, DeployTemplateDto } from './dto/template.dto';
 
+@ApiTags('Templates')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @UseGuards(JwtAuthGuard)
 @Controller('templates')
 export class TemplatesController {

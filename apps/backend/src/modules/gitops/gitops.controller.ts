@@ -1,6 +1,7 @@
 import {
   Controller, Get, Post, Patch, Delete, Param, Body, Headers, UseGuards, RawBodyRequest, Req,
 } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
@@ -12,6 +13,9 @@ import {
   CreateGitCredentialsDto,
 } from './dto/gitops.dto';
 
+@ApiTags('GitOps')
+@ApiBearerAuth('access-token')
+@ApiSecurity('api-key')
 @UseGuards(JwtAuthGuard)
 @Controller('gitops')
 export class GitopsController {
