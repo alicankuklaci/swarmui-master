@@ -28,7 +28,16 @@ export class MonitoringController {
   @Get('nodes')
   @ApiOperation({ summary: 'Latest sample per node (grid view)' })
   async listNodes() {
-    return this.metrics.latestNodeSamples();
+    const [samples, hostnameMap] = await Promise.all([
+      this.metrics.latestNodeSamples(),
+      this.metrics.nodeIdToHostname(),
+    ]);
+    // Decorate every sample with the live hostname so historical rows (written
+    // before hostnames were persisted) still display a friendly name.
+    return (samples as any[]).map((s) => ({
+      ...s,
+      nodeHostname: s.nodeHostname || hostnameMap[s.nodeId] || undefined,
+    }));
   }
 
   @Get('nodes/:nodeId/metrics')
@@ -53,9 +62,16 @@ export class MonitoringController {
     @Query('sort') sort?: 'cpu' | 'mem',
     @Query('limit') limit?: string,
   ) {
-    return this.metrics.latestContainers({
-      nodeId, sort, limit: limit ? Number(limit) : 20,
-    });
+    const [rows, hostnameMap] = await Promise.all([
+      this.metrics.latestContainers({
+        nodeId, sort, limit: limit ? Number(limit) : 20,
+      }),
+      this.metrics.nodeIdToHostname(),
+    ]);
+    return (rows as any[]).map((r) => ({
+      ...r,
+      nodeHostname: hostnameMap[r.nodeId] || undefined,
+    }));
   }
 
   @Get('containers/:containerId/metrics')
@@ -141,11 +157,21 @@ export class MonitoringController {
     @Query('to') to?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.svc.listAlarms({
-      status, severity,
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
-      limit: limit ? Number(limit) : undefined,
+    const [rows, hostnameMap] = await Promise.all([
+      this.svc.listAlarms({
+        status, severity,
+        from: from ? new Date(from) : undefined,
+        to: to ? new Date(to) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      }),
+      this.metrics.nodeIdToHostname(),
+    ]);
+    return (rows as any[]).map((a) => {
+      const nid = a?.target?.nodeId;
+      if (!nid) return a;
+      const hostname = hostnameMap[nid];
+      if (!hostname) return a;
+      return { ...a, target: { ...a.target, nodeHostname: hostname } };
     });
   }
 
@@ -153,7 +179,17 @@ export class MonitoringController {
   async firingCount() { return { count: await this.svc.firingCount() }; }
 
   @Get('alarms/:id')
-  async getAlarm(@Param('id') id: string) { return this.svc.getAlarm(id); }
+  async getAlarm(@Param('id') id: string) {
+    const [a, hostnameMap] = await Promise.all([
+      this.svc.getAlarm(id),
+      this.metrics.nodeIdToHostname(),
+    ]);
+    const nid = (a as any)?.target?.nodeId;
+    if (!nid) return a;
+    const hostname = hostnameMap[nid];
+    if (!hostname) return a;
+    return { ...(a as any), target: { ...(a as any).target, nodeHostname: hostname } };
+  }
 
   @Post('alarms/:id/acknowledge')
   @HttpCode(HttpStatus.OK)
