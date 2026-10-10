@@ -15,6 +15,8 @@ import {
   useAlarmRules, useCreateRule, useUpdateRule, useDeleteRule, useTestRule, AlarmRule,
 } from '@/hooks/useAlarmRules';
 import { useNotificationChannels } from '@/hooks/useNotificationChannels';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 export function AlarmRulesPage() {
   const query = useAlarmRules();
@@ -24,6 +26,8 @@ export function AlarmRulesPage() {
   const test = useTestRule();
   const confirm = useConfirm();
   const [addOpen, setAddOpen] = useState(false);
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
 
   return (
     <div className="p-6 space-y-4">
@@ -32,11 +36,20 @@ export function AlarmRulesPage() {
         description="Thresholds and conditions evaluated every 30 seconds. Linked channels fire on breach."
         actions={<Button onClick={() => setAddOpen(true)}><Plus className="w-4 h-4 mr-1" />Add Rule</Button>}
       />
+      <SearchInput value={search} onChange={setSearch} placeholder="Search alarm rules by name, metric, or target" />
       <AsyncView
         query={query}
         empty={<EmptyState icon={Sliders} title="No alarm rules" message="On first boot, 5 preset rules were created disabled. Enable them, or add your own." />}
       >
-        {(rows: AlarmRule[]) => (
+        {(allRows: AlarmRule[]) => {
+          const rows = needle
+            ? allRows.filter((r) =>
+                (r.name || '').toLowerCase().includes(needle) ||
+                (r.metric || '').toLowerCase().includes(needle) ||
+                (r.target || '').toLowerCase().includes(needle),
+              )
+            : allRows;
+          return (
           <div className="rounded-md border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-left">
@@ -91,7 +104,8 @@ export function AlarmRulesPage() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        }}
       </AsyncView>
 
       <AddRuleDialog

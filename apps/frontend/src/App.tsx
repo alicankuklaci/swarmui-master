@@ -48,6 +48,8 @@ import { AlarmRulesPage } from '@/pages/monitoring/AlarmRulesPage';
 import { AlarmsPage } from '@/pages/monitoring/AlarmsPage';
 import { AlarmDetailPage } from '@/pages/monitoring/AlarmDetailPage';
 import { NotificationChannelsPage } from '@/pages/notifications/NotificationChannelsPage';
+import { LogsPage } from '@/pages/LogsPage';
+import { ClusterPage } from '@/pages/ClusterPage';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { RoleRoute } from '@/components/auth/RoleRoute';
 
@@ -140,16 +142,22 @@ export default function App() {
                 <Route path="images" element={<ImagesPage />} />
                 <Route path="networks" element={<NetworksPage />} />
                 <Route path="volumes" element={<VolumesPage />} />
-                <Route path="events" element={<EventsPage />} />
-                {/* Swarm */}
-                <Route path="swarm" element={<SwarmPage />} />
-                <Route path="nodes" element={<NodesPage />} />
-                <Route path="visualizer" element={<ClusterVisualizerPage />} />
-                <Route path="audit-log" element={<AuditLogPage />} />
+                {/* Workloads */}
                 <Route path="services" element={<ServicesPage />} />
                 <Route path="services/:id" element={<ServiceDetailPage />} />
                 <Route path="stacks" element={<StacksPage />} />
                 <Route path="stacks/:name" element={<StackDetailPage />} />
+                {/* Cluster — unified Swarm + Nodes + Topology (any authed user) */}
+                <Route path="cluster" element={<ClusterPage />} />
+                {/* Legacy cluster URLs redirect into the consolidated page */}
+                <Route path="swarm" element={<Navigate to="/cluster?tab=overview" replace />} />
+                <Route path="nodes" element={<Navigate to="/cluster?tab=nodes" replace />} />
+                <Route path="visualizer" element={<Navigate to="/cluster?tab=topology" replace />} />
+                {/* Logs — unified Audit + Activity + Auth + Events */}
+                <Route path="logs" element={<AdminRoute><LogsPage /></AdminRoute>} />
+                {/* Legacy logs URLs */}
+                <Route path="audit-log" element={<Navigate to="/logs?tab=audit" replace />} />
+                <Route path="events" element={<Navigate to="/logs?tab=events" replace />} />
                 {/* Platform */}
                 <Route path="registries" element={<RegistriesPage />} />
                 <Route path="templates" element={<TemplatesPage />} />
@@ -180,8 +188,8 @@ export default function App() {
                 <Route path="roles" element={<AdminRoute><RolesPage /></AdminRoute>} />
                 <Route path="endpoints" element={<AdminRoute><EndpointsPage /></AdminRoute>} />
                 <Route path="settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
-                <Route path="activity-logs" element={<AdminRoute><ActivityLogsPage /></AdminRoute>} />
-                <Route path="auth-logs" element={<AdminRoute><AuthLogsPage /></AdminRoute>} />
+                <Route path="activity-logs" element={<Navigate to="/logs?tab=activity" replace />} />
+                <Route path="auth-logs" element={<Navigate to="/logs?tab=auth" replace />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

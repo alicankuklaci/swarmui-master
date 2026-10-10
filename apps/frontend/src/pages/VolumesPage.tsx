@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/dialog';
 import { useVolumes, useCreateVolume, useRemoveVolume } from '@/hooks/useDocker';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 
 
@@ -39,6 +41,15 @@ export function VolumesPage() {
 
   // Docker API returns { Volumes: [...], Warnings: [...] }
   const volumes: any[] = volumesData?.Volumes ?? volumesData ?? [];
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filteredVolumes = needle
+    ? volumes.filter((v: any) =>
+        (v.Name || '').toLowerCase().includes(needle) ||
+        (v.Driver || '').toLowerCase().includes(needle) ||
+        (v.Mountpoint || '').toLowerCase().includes(needle),
+      )
+    : volumes;
 
   function openCreate() {
     setVolumeName('');
@@ -96,6 +107,8 @@ export function VolumesPage() {
         </div>
       )}
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search volumes by name, driver, or mountpoint" />
+
       <div className="rounded-md border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -116,14 +129,14 @@ export function VolumesPage() {
                     Loading volumes...
                   </td>
                 </tr>
-              ) : volumes.length === 0 ? (
+              ) : filteredVolumes.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-8 text-center text-muted-foreground">
-                    No volumes found
+                    {needle ? `No volumes match "${debounced}".` : 'No volumes found'}
                   </td>
                 </tr>
               ) : (
-                volumes.map((volume: any) => (
+                filteredVolumes.map((volume: any) => (
                   <tr key={volume.Name} className="border-b hover:bg-muted/30">
                     <td className="p-3 font-medium font-mono text-xs max-w-[220px] truncate">
                       {volume.Name}

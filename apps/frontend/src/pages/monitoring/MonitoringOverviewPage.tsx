@@ -5,7 +5,7 @@ import { AsyncView } from '@/components/ui/async-view';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { useNodeList, useFiringCount } from '@/hooks/useMonitoring';
+import { useNodeList, useFiringCount, nodeDisplay } from '@/hooks/useMonitoring';
 import { cn, formatBytes } from '@/lib/utils';
 
 function FiringAlarmBanner() {
@@ -77,10 +77,14 @@ export function MonitoringOverviewPage() {
               return (
                 <Card key={n.nodeId} className="hover:shadow-md transition-shadow">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Server className="w-4 h-4 text-primary" />
-                      <Link to={`/monitoring/nodes/${encodeURIComponent(n.nodeId)}`} className="hover:underline">
-                        {n.nodeId}
+                    <CardTitle className="text-base flex items-center gap-2 min-w-0">
+                      <Server className="w-4 h-4 text-primary flex-shrink-0" />
+                      <Link
+                        to={`/monitoring/nodes/${encodeURIComponent(n.nodeId)}`}
+                        className="hover:underline truncate"
+                        title={n.nodeId}
+                      >
+                        {nodeDisplay(n)}
                       </Link>
                     </CardTitle>
                     <Badge variant="outline" className="text-xs">

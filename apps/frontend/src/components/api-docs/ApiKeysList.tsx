@@ -21,6 +21,8 @@ import {
 import { useToast } from '@/hooks/useToast';
 import { formatDate } from '@/lib/utils';
 import { CreateApiKeyDialog, type ApiKeyScope } from './CreateApiKeyDialog';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 interface ApiKeyItem {
   _id: string;
@@ -64,9 +66,20 @@ export function ApiKeysList() {
     onError: () => toast({ title: 'Failed to revoke API key', variant: 'destructive' }),
   });
 
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filteredKeys = needle
+    ? keys.filter((k) =>
+        (k.name || '').toLowerCase().includes(needle) ||
+        (k.keyPrefix || '').toLowerCase().includes(needle) ||
+        (k.scope || []).join(' ').toLowerCase().includes(needle),
+      )
+    : keys;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-2">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search API keys by name, prefix, or scope" />
         <CreateApiKeyDialog />
       </div>
 
@@ -74,15 +87,15 @@ export function ApiKeysList() {
         <CardHeader>
           <CardTitle>Your API Keys</CardTitle>
           <CardDescription>
-            {keys.length} key{keys.length !== 1 ? 's' : ''}
+            {filteredKeys.length} of {keys.length} key{keys.length !== 1 ? 's' : ''}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <p className="text-muted-foreground text-sm py-8 text-center">Loading...</p>
-          ) : keys.length === 0 ? (
+          ) : filteredKeys.length === 0 ? (
             <p className="text-muted-foreground text-sm py-8 text-center">
-              No API keys yet. Create one to get started.
+              {needle ? `No API keys match "${debounced}".` : 'No API keys yet. Create one to get started.'}
             </p>
           ) : (
             <Table>
@@ -99,7 +112,7 @@ export function ApiKeysList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {keys.map((k) => (
+                {filteredKeys.map((k) => (
                   <TableRow key={k._id}>
                     <TableCell className="font-medium">{k.name}</TableCell>
                     <TableCell>

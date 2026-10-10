@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAlarms, useAckAlarm, Alarm } from '@/hooks/useMonitoring';
 import { formatDate, cn } from '@/lib/utils';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 function sevIcon(s: Alarm['severity']) {
   if (s === 'critical') return <AlertTriangle className="w-4 h-4 text-red-500" />;
@@ -25,6 +27,8 @@ export function AlarmsPage() {
   const [severity, setSeverity] = useState<string | undefined>(undefined);
   const query = useAlarms({ status, severity, limit: 100 });
   const ackMut = useAckAlarm();
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
 
   return (
     <div className="p-6 space-y-4">
@@ -44,11 +48,27 @@ export function AlarmsPage() {
         }
       />
 
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by rule, node, stack, or container"
+      />
+
       <AsyncView
         query={query}
         empty={<EmptyState icon={Bell} title="No alarms match" message="Try widening your filters, or enable preset rules at /monitoring/rules." />}
       >
-        {(rows: Alarm[]) => (
+        {(allRows: Alarm[]) => {
+          const rows = needle
+            ? allRows.filter((a) =>
+                (a.ruleName || '').toLowerCase().includes(needle) ||
+                (a.target?.nodeId || '').toLowerCase().includes(needle) ||
+                ((a.target as any)?.nodeHostname || '').toLowerCase().includes(needle) ||
+                (a.target?.stackName || '').toLowerCase().includes(needle) ||
+                (a.target?.containerId || '').toLowerCase().includes(needle),
+              )
+            : allRows;
+          return (
           <div className="rounded-md border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-left">
@@ -77,7 +97,11 @@ export function AlarmsPage() {
                       <Badge variant={a.status === 'firing' ? 'destructive' : 'outline'}>{a.status}</Badge>
                     </td>
                     <td className="p-2 text-xs text-muted-foreground">
-                      {a.target?.nodeId && <div>node: {a.target.nodeId}</div>}
+                      {a.target?.nodeId && (
+                        <div title={a.target.nodeId}>
+                          node: {(a.target as any).nodeHostname || a.target.nodeId.slice(0, 12) + '…'}
+                        </div>
+                      )}
                       {a.target?.containerId && <div>cnt: {a.target.containerId.slice(0, 12)}</div>}
                       {a.target?.stackName && <div>stack: {a.target.stackName}</div>}
                       {a.target?.uptimeCheckId && <div>check: {a.target.uptimeCheckId}</div>}
@@ -103,7 +127,8 @@ export function AlarmsPage() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        }}
       </AsyncView>
     </div>
   );

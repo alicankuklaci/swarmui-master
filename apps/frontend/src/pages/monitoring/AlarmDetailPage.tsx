@@ -24,7 +24,19 @@ export function AlarmDetailPage() {
                 <div><strong>Fired at:</strong> {formatDate(a.firedAt)}</div>
                 {a.resolvedAt && <div><strong>Resolved at:</strong> {formatDate(a.resolvedAt)}</div>}
                 <div><strong>Value / Threshold:</strong> <code>{Number(a.value).toFixed(2)} / {Number(a.threshold).toFixed(2)}</code></div>
-                <div><strong>Target:</strong> <code>{JSON.stringify(a.target)}</code></div>
+                <div>
+                  <strong>Target:</strong>{' '}
+                  {a.target?.nodeId && (
+                    <span title={a.target.nodeId}>
+                      <code>{a.target.nodeHostname || a.target.nodeId.slice(0, 12) + '…'}</code>
+                      {a.target.containerId && <> · container <code>{a.target.containerId.slice(0, 12)}…</code></>}
+                      {a.target.stackName && <> · stack <code>{a.target.stackName}</code></>}
+                    </span>
+                  )}
+                  {!a.target?.nodeId && a.target?.stackName && <code>stack {a.target.stackName}</code>}
+                  {!a.target?.nodeId && !a.target?.stackName && a.target?.uptimeCheckId && <code>uptime check</code>}
+                  {!a.target?.nodeId && !a.target?.stackName && !a.target?.uptimeCheckId && <span className="text-muted-foreground">—</span>}
+                </div>
                 {a.acknowledgedAt && <div><strong>Acknowledged at:</strong> {formatDate(a.acknowledgedAt)}</div>}
               </CardContent>
             </Card>

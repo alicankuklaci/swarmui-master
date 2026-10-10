@@ -88,7 +88,7 @@ export default function AuditLogPage() {
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">Yükleniyor...</td></tr>
+              <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">Loading…</td></tr>
             ) : logs.length === 0 ? (
               <tr><td colSpan={6} className="text-center py-12 text-muted-foreground">Kayıt bulunamadı</td></tr>
             ) : logs.map((log: any) => (

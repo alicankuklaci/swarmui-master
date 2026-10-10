@@ -6,10 +6,12 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useNodeList, useContainers, useFiringCount } from '@/hooks/useMonitoring';
+import { useNodeList, useContainers, useFiringCount, nodeDisplay } from '@/hooks/useMonitoring';
 import { cn, formatBytes } from '@/lib/utils';
 import { useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 const REFRESH_MS = 5_000;
 
@@ -48,6 +50,8 @@ export function LiveMonitoringPage() {
   const [sort, setSort] = useState<'cpu' | 'mem'>('cpu');
   const nodesQuery = useNodeList(REFRESH_MS);
   const containersQuery = useContainers({ sort, limit: 20 }, REFRESH_MS);
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
 
   return (
     <div className="p-6 space-y-6">
@@ -78,10 +82,14 @@ export function LiveMonitoringPage() {
               return (
                 <Card key={n.nodeId}>
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Server className="w-4 h-4 text-primary" />
-                      <Link to={`/monitoring/nodes/${encodeURIComponent(n.nodeId)}`} className="hover:underline">
-                        {n.nodeId}
+                    <CardTitle className="text-base flex items-center gap-2 min-w-0">
+                      <Server className="w-4 h-4 text-primary flex-shrink-0" />
+                      <Link
+                        to={`/monitoring/nodes/${encodeURIComponent(n.nodeId)}`}
+                        className="hover:underline truncate"
+                        title={n.nodeId}
+                      >
+                        {nodeDisplay(n)}
                       </Link>
                     </CardTitle>
                     <Badge variant="outline" className="text-xs">
@@ -108,7 +116,7 @@ export function LiveMonitoringPage() {
 
       {/* Live container table */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <h2 className="text-base font-semibold flex items-center gap-2">
             <ContainerIcon className="w-4 h-4" />
             Top containers (live)
@@ -119,11 +127,22 @@ export function LiveMonitoringPage() {
           </div>
         </div>
 
+        <SearchInput value={search} onChange={setSearch} placeholder="Search containers, images, stacks, or node" />
+
         <AsyncView
           query={containersQuery}
           empty={<EmptyState icon={ContainerIcon} title="No containers reporting" message="Metric collector hasn't sampled yet." />}
         >
-          {(rows: any[]) => (
+          {(allRows: any[]) => {
+            const rows = needle
+              ? allRows.filter((r) =>
+                  (r.name || '').toLowerCase().includes(needle) ||
+                  (r.image || '').toLowerCase().includes(needle) ||
+                  (r.stackName || '').toLowerCase().includes(needle) ||
+                  nodeDisplay(r).toLowerCase().includes(needle),
+                )
+              : allRows;
+            return (
             <div className="rounded-md border overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/60 text-left text-xs uppercase">
@@ -146,7 +165,7 @@ export function LiveMonitoringPage() {
                         <td className="p-2 font-medium">
                           <Link to={`/monitoring/containers/${r.containerId}`} className="hover:underline">{r.name}</Link>
                         </td>
-                        <td className="p-2 text-xs">{r.nodeId}</td>
+                        <td className="p-2 text-xs" title={r.nodeId}>{nodeDisplay(r)}</td>
                         <td className="p-2 text-xs text-muted-foreground">{r.stackName ?? '—'}</td>
                         <td className={cn('p-2 text-right font-mono tabular-nums', cpuCls)}>{r.cpuPct?.toFixed(1)}</td>
                         <td className={cn('p-2 text-right font-mono tabular-nums', memCls)}>{r.memUsedPct?.toFixed(1)}</td>
@@ -160,7 +179,8 @@ export function LiveMonitoringPage() {
                 </tbody>
               </table>
             </div>
-          )}
+            );
+          }}
         </AsyncView>
       </div>
     </div>

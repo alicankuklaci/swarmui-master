@@ -5,6 +5,8 @@ import { useAppMutation } from './useAppMutation';
 export interface NodeSample {
   _id: string;
   nodeId: string;
+  /** Human-readable hostname. May be absent on legacy samples; display must fall back to nodeId. */
+  nodeHostname?: string;
   ts: string;
   cpu: { usagePct: number; cores: number; loadavg: number[] };
   mem: { usedBytes: number; totalBytes: number; usedPct: number };
@@ -16,6 +18,8 @@ export interface NodeSample {
 export interface ContainerSample {
   _id: string;
   nodeId: string;
+  /** Human-readable hostname of the node this container ran on. */
+  nodeHostname?: string;
   containerId: string;
   name: string;
   image: string;
@@ -38,11 +42,17 @@ export interface Alarm {
   resolvedAt?: string;
   value: number;
   threshold: number;
-  target: { nodeId?: string; containerId?: string; stackName?: string; uptimeCheckId?: string };
+  target: { nodeId?: string; nodeHostname?: string; containerId?: string; stackName?: string; uptimeCheckId?: string };
   snapshot?: any;
   notifiedChannels?: any[];
   acknowledgedBy?: string;
   acknowledgedAt?: string;
+}
+
+/** Returns a short display label: hostname when known, else first 12 chars of nodeId. */
+export function nodeDisplay(sample: { nodeHostname?: string; nodeId: string }): string {
+  if (sample.nodeHostname) return sample.nodeHostname;
+  return (sample.nodeId || '').slice(0, 12) || '—';
 }
 
 export function useNodeList(refetchMs = 30_000) {

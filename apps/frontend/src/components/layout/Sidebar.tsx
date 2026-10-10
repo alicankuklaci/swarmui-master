@@ -21,25 +21,32 @@ const navSections = [
       { to: '/endpoints', icon: Server, labelKey: 'nav.endpoints' },
     ],
   },
+  // WORKLOADS — stacks first (daily use), services, containers
   {
-    titleKey: 'nav.docker',
+    titleKey: 'nav.workloads',
+    defaultTitle: 'Workloads',
     items: [
+      { to: '/stacks', icon: GitBranch, labelKey: 'nav.stacks' },
+      { to: '/services', icon: Layers, labelKey: 'nav.services' },
       { to: '/containers', icon: Container, labelKey: 'nav.containers' },
+    ],
+  },
+  // CLUSTER — consolidated Swarm + Nodes + Topology
+  {
+    titleKey: 'nav.cluster',
+    defaultTitle: 'Cluster',
+    items: [
+      { to: '/cluster', icon: Grid3X3, labelKey: 'nav.cluster', defaultLabel: 'Cluster' },
+    ],
+  },
+  // RESOURCES — images, networks, volumes (the lower-churn docker objects)
+  {
+    titleKey: 'nav.resources',
+    defaultTitle: 'Resources',
+    items: [
       { to: '/images', icon: Image, labelKey: 'nav.images' },
       { to: '/networks', icon: Network, labelKey: 'nav.networks' },
       { to: '/volumes', icon: HardDrive, labelKey: 'nav.volumes' },
-      { to: '/events', icon: Radio, labelKey: 'nav.events' },
-    ],
-  },
-  {
-    titleKey: 'nav.swarm',
-    items: [
-      { to: '/swarm', icon: Grid3X3, labelKey: 'nav.swarm' },
-      { to: '/nodes', icon: Server, labelKey: 'nav.nodes' },
-      { to: '/visualizer', icon: LayoutDashboard, labelKey: 'nav.clusterVisualizer' },
-      { to: '/audit-log', icon: ClipboardList, labelKey: 'nav.auditLog' },
-      { to: '/services', icon: Layers, labelKey: 'nav.services' },
-      { to: '/stacks', icon: GitBranch, labelKey: 'nav.stacks' },
     ],
   },
   {
@@ -50,14 +57,16 @@ const navSections = [
       { to: '/gitops', icon: GitMerge, labelKey: 'nav.gitops' },
     ],
   },
+  // OBSERVABILITY — Live first (operators default to live), then overview
   {
     titleKey: 'nav.observability',
     items: [
-      { to: '/monitoring', icon: Activity, labelKey: 'nav.monitoring', defaultLabel: 'Monitoring' },
       { to: '/monitoring/live', icon: Zap, labelKey: 'nav.liveMonitoring', defaultLabel: 'Live view' },
+      { to: '/monitoring', icon: Activity, labelKey: 'nav.monitoring', defaultLabel: 'Monitoring' },
       { to: '/monitoring/uptime', icon: Radio, labelKey: 'nav.uptime', defaultLabel: 'Uptime' },
       { to: '/monitoring/alarms', icon: Bell, labelKey: 'nav.alarms', defaultLabel: 'Alarms', firingBadge: true },
       { to: '/monitoring/rules', icon: Sliders, labelKey: 'nav.alarmRules', defaultLabel: 'Alarm Rules' },
+      { to: '/logs', icon: ClipboardList, labelKey: 'nav.logs', defaultLabel: 'Logs', requiresAdmin: true },
     ],
   },
   {
@@ -76,8 +85,6 @@ const navSections = [
       { to: '/users', icon: Users, labelKey: 'nav.users' },
       { to: '/teams', icon: UsersRound, labelKey: 'nav.teams' },
       { to: '/roles', icon: Shield, labelKey: 'nav.roles' },
-      { to: '/activity-logs', icon: Activity, labelKey: 'nav.activityLogs' },
-      { to: '/auth-logs', icon: KeyRound, labelKey: 'nav.authLogs' },
       { to: '/settings', icon: Settings, labelKey: 'nav.settings' },
     ],
   },
@@ -145,13 +152,13 @@ export function Sidebar() {
           <div key={si} className="mb-1">
             {section.titleKey && sidebarOpen && (
               <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                {t(section.titleKey)}
+                {t(section.titleKey, { defaultValue: (section as any).defaultTitle || section.titleKey })}
               </div>
             )}
             {section.titleKey && !sidebarOpen && (
               <div className="my-1 mx-3 border-t border-gray-700" />
             )}
-            {section.items.map((item: any) => (
+            {section.items.filter((item: any) => !item.requiresAdmin || isAdmin).map((item: any) => (
               <NavLink
                 key={item.to}
                 to={item.to}
