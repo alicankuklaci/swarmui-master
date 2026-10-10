@@ -14,6 +14,8 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { PlusIcon } from 'lucide-react';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 
 
@@ -63,6 +65,15 @@ export function ServicesPage() {
 
   const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null);
   const [removing, setRemoving] = useState(false);
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filtered = needle
+    ? (services ?? []).filter((s: any) => {
+        const name = (s.Spec?.Name ?? '').toLowerCase();
+        const image = (getImage(s) ?? '').toLowerCase();
+        return name.includes(needle) || image.includes(needle);
+      })
+    : (services ?? []);
 
   function openScale(service: any) {
     const current = service.Spec?.Mode?.Replicated?.Replicas ?? 0;
@@ -132,6 +143,8 @@ export function ServicesPage() {
         </Dialog>
       </div>
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search services by name or image" />
+
       <div className="rounded-lg border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/50">
@@ -146,14 +159,14 @@ export function ServicesPage() {
             </tr>
           </thead>
           <tbody>
-            {(services ?? []).length === 0 && (
+            {filtered.length === 0 && (
               <tr>
                 <td colSpan={7} className="text-center py-8 text-muted-foreground">
-                  No services found.
+                  {needle ? `No services match "${debounced}".` : 'No services found.'}
                 </td>
               </tr>
             )}
-            {(services ?? []).map((service: any) => {
+            {filtered.map((service: any) => {
               const name = service.Spec?.Name ?? service.ID;
               const ports = service.Endpoint?.Ports ?? [];
               const mode = getMode(service);

@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/useToast';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 const REGISTRY_TYPES = [
   { value: 'dockerhub', label: 'Docker Hub', url: 'https://registry-1.docker.io' },
@@ -44,23 +46,23 @@ export function RegistriesPage() {
 
   const createMutation = useMutation({
     mutationFn: (body: any) => api.post('/registries', body),
-    onSuccess: () => { toast({ title: 'Registry eklendi' }); qc.invalidateQueries({ queryKey: ['registries'] }); setCreateOpen(false); setForm(emptyForm); },
-    onError: (e: any) => toast({ variant: 'destructive', title: 'Hata', description: e.response?.data?.message || e.message }),
+    onSuccess: () => { toast({ title: 'Registry added' }); qc.invalidateQueries({ queryKey: ['registries'] }); setCreateOpen(false); setForm(emptyForm); },
+    onError: (e: any) => toast({ variant: 'destructive', title: 'Error', description: e.response?.data?.message || e.message }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/registries/${id}`),
-    onSuccess: () => { toast({ title: 'Registry silindi' }); qc.invalidateQueries({ queryKey: ['registries'] }); },
-    onError: (e: any) => toast({ variant: 'destructive', title: 'Hata', description: e.response?.data?.message || e.message }),
+    onSuccess: () => { toast({ title: 'Registry deleted' }); qc.invalidateQueries({ queryKey: ['registries'] }); },
+    onError: (e: any) => toast({ variant: 'destructive', title: 'Error', description: e.response?.data?.message || e.message }),
   });
 
   const testAuth = async (id: string) => {
     setTesting(id);
     try {
       await api.post(`/registries/${id}/test`);
-      toast({ title: '✓ Bağlantı başarılı', description: 'Registry kimlik doğrulama çalışıyor' });
+      toast({ title: 'Connection OK', description: 'Registry authentication works.' });
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Bağlantı başarısız', description: e.response?.data?.message || e.message });
+      toast({ variant: 'destructive', title: 'Connection failed', description: e.response?.data?.message || e.message });
     } finally { setTesting(null); }
   };
 
@@ -70,30 +72,43 @@ export function RegistriesPage() {
   };
 
   const registries = data ?? [];
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filteredRegistries = needle
+    ? registries.filter((r: any) =>
+        (r.name || '').toLowerCase().includes(needle) ||
+        (r.url || '').toLowerCase().includes(needle) ||
+        (r.type || '').toLowerCase().includes(needle),
+      )
+    : registries;
 
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Registries</h1>
-          <p className="text-sm text-muted-foreground mt-1">Private container registry kimlik bilgilerini yönet</p>
+          <p className="text-sm text-muted-foreground mt-1">Manage private container registry credentials.</p>
         </div>
         <Button onClick={() => { setCreateOpen(true); setForm(emptyForm); }}>
-          <Plus className="h-4 w-4 mr-2" /> Registry Ekle
+          <Plus className="h-4 w-4 mr-2" /> Add registry
         </Button>
       </div>
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search registries by name, URL, or type" />
+
       {isLoading ? (
-        <p className="text-muted-foreground text-sm py-12 text-center">Yükleniyor...</p>
-      ) : registries.length === 0 ? (
+        <p className="text-muted-foreground text-sm py-12 text-center">Loading…</p>
+      ) : filteredRegistries.length === 0 ? (
         <div className="border rounded-lg p-12 text-center">
-          <p className="text-muted-foreground">Henüz registry eklenmemiş</p>
-          <p className="text-xs text-muted-foreground mt-1">Docker Hub, ECR, GCR veya özel registry ekle</p>
-          <Button className="mt-4" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-2" />İlk Registryi Ekle</Button>
+          <p className="text-muted-foreground">{needle ? `No registries match "${debounced}".` : 'No registries added yet.'}</p>
+          {!needle && <>
+            <p className="text-xs text-muted-foreground mt-1">Add Docker Hub, ECR, GCR, or a self-hosted registry.</p>
+            <Button className="mt-4" onClick={() => setCreateOpen(true)}><Plus className="h-4 w-4 mr-2" />Add your first registry</Button>
+          </>}
         </div>
       ) : (
         <div className="grid gap-4">
-          {registries.map((reg: any) => (
+          {filteredRegistries.map((reg: any) => (
             <div key={reg._id} className="border rounded-lg p-4 flex items-center gap-4">
               <div className="flex-1">
                 <div className="flex items-center gap-2">
@@ -102,7 +117,7 @@ export function RegistriesPage() {
                   {reg.authentication && <Badge variant="outline">🔐 Auth</Badge>}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1 font-mono">{reg.url}</p>
-                {reg.username && <p className="text-xs text-muted-foreground">Kullanıcı: {reg.username}</p>}
+                {reg.username && <p className="text-xs text-muted-foreground">User: {reg.username}</p>}
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => testAuth(reg._id)} disabled={testing === reg._id}>

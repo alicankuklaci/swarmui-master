@@ -21,6 +21,8 @@ import {
 } from '@/components/ui/select';
 import { useNetworks, useCreateNetwork, useRemoveNetwork } from '@/hooks/useDocker';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 
 
@@ -75,6 +77,14 @@ export function NetworksPage() {
   const [detailNetworkId, setDetailNetworkId] = useState<string | null>(null);
 
   const { data: networks = [], isLoading } = useNetworks(endpointId);
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filteredNetworks = needle
+    ? (networks ?? []).filter((n: any) =>
+        (n.Name || '').toLowerCase().includes(needle) ||
+        (n.Driver || '').toLowerCase().includes(needle),
+      )
+    : (networks ?? []);
   const { data: networkContainers = [], isLoading: containersLoading } = useQuery({
     queryKey: ['network-containers', endpointId, detailNetworkId],
     queryFn: () => api.get(`/endpoints/${endpointId}/networks/${detailNetworkId}/containers`).then((r) => r.data?.data ?? r.data ?? []),
@@ -151,6 +161,8 @@ export function NetworksPage() {
         </div>
       )}
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search networks by name or driver" />
+
       <div className="rounded-md border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -173,14 +185,14 @@ export function NetworksPage() {
                     Loading networks...
                   </td>
                 </tr>
-              ) : !networks || networks.length === 0 ? (
+              ) : filteredNetworks.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                    No networks found
+                    {needle ? `No networks match "${debounced}".` : 'No networks found'}
                   </td>
                 </tr>
               ) : (
-                networks.map((network: any) => {
+                filteredNetworks.map((network: any) => {
                   const isBuiltin = BUILTIN_NETWORKS.has(network.Name);
                   return (
                     <tr key={network.Id} className="border-b hover:bg-muted/30">

@@ -8,7 +8,7 @@ import { AsyncView } from '@/components/ui/async-view';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { useNodeMetrics, useContainers } from '@/hooks/useMonitoring';
+import { useNodeMetrics, useContainers, useNodeList } from '@/hooks/useMonitoring';
 import { formatBytes } from '@/lib/utils';
 
 type Range = '1h' | '24h' | '7d';
@@ -25,6 +25,15 @@ export function NodeDetailPage() {
 
   const seriesQ = useNodeMetrics(nodeId, from, to);
   const containersQ = useContainers({ nodeId, sort: 'cpu', limit: 20 });
+  // Pick hostname from the latest-samples list (cheap, cached) so the title
+  // shows a friendly name instead of a 25-char docker ID.
+  const nodesListQ = useNodeList(60_000);
+  const matched = nodesListQ.data?.find((n: any) => n.nodeId === nodeId);
+  const hostname = matched?.nodeHostname;
+  const titleLabel = hostname ? `Node: ${hostname}` : `Node: ${nodeId.slice(0, 12)}…`;
+  const descriptionLabel = hostname
+    ? `${nodeId} · Time-series resource usage · last probe snapshot · top containers`
+    : 'Time-series resource usage · last probe snapshot · top containers';
 
   const chartData = useMemo(() => {
     if (!seriesQ.data) return [];
@@ -41,8 +50,8 @@ export function NodeDetailPage() {
   return (
     <div className="p-6 space-y-6">
       <PageHeader
-        title={`Node: ${nodeId}`}
-        description="Time-series resource usage · last probe snapshot · top containers"
+        title={titleLabel}
+        description={descriptionLabel}
         back={{ to: '/monitoring', label: 'All nodes' }}
         actions={
           <div className="flex gap-1">

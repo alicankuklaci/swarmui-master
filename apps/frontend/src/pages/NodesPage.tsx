@@ -4,6 +4,8 @@ import { useNodes, useUpdateNode, useRemoveNode } from '@/hooks/useDocker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 
 
@@ -15,6 +17,15 @@ export function NodesPage() {
 
   const [removeTarget, setRemoveTarget] = useState<{ id: string; hostname: string } | null>(null);
   const [removing, setRemoving] = useState(false);
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filteredNodes = needle
+    ? (nodes ?? []).filter((n: any) =>
+        (n.Description?.Hostname || '').toLowerCase().includes(needle) ||
+        (n.ID || '').toLowerCase().includes(needle) ||
+        (n.Status?.Addr || '').toLowerCase().includes(needle),
+      )
+    : (nodes ?? []);
 
   function handleSetAvailability(id: string, availability: string) {
     updateNode.mutate({ id, body: { availability } });
@@ -45,6 +56,8 @@ export function NodesPage() {
     <div className="p-6 space-y-4">
       <h1 className="text-2xl font-bold">Nodes</h1>
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search nodes by hostname, ID, or address" />
+
       <div className="rounded-lg border overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b bg-muted/50">
@@ -60,14 +73,14 @@ export function NodesPage() {
             </tr>
           </thead>
           <tbody>
-            {(nodes ?? []).length === 0 && (
+            {filteredNodes.length === 0 && (
               <tr>
                 <td colSpan={8} className="text-center py-8 text-muted-foreground">
-                  No nodes found.
+                  {needle ? `No nodes match "${debounced}".` : 'No nodes found.'}
                 </td>
               </tr>
             )}
-            {(nodes ?? []).map((node: any) => {
+            {filteredNodes.map((node: any) => {
               const isLeader = node.ManagerStatus?.Leader === true;
               const role = node.Spec?.Role ?? '—';
               const availability = node.Spec?.Availability ?? '—';

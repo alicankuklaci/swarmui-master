@@ -19,6 +19,8 @@ import {
   UptimeCheck,
 } from '@/hooks/useUptimeChecks';
 import { formatDate, cn } from '@/lib/utils';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 export function UptimeChecksPage() {
   const query = useUptimeChecks();
@@ -27,6 +29,8 @@ export function UptimeChecksPage() {
   const del = useDeleteCheck();
   const test = useTestCheck();
   const confirm = useConfirm();
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
 
   function renderStatus(c: UptimeCheck) {
     const map: any = { up: 'default', down: 'destructive', unknown: 'outline' };
@@ -45,11 +49,21 @@ export function UptimeChecksPage() {
         }
       />
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search checks by name, target, or type" />
+
       <AsyncView
         query={query}
         empty={<EmptyState icon={Radio} title="No uptime checks" message="Add one to probe a URL, TCP port or ICMP host." action={<Button onClick={() => setAddOpen(true)}>Add Check</Button>} />}
       >
-        {(rows: UptimeCheck[]) => (
+        {(allRows: UptimeCheck[]) => {
+          const rows = needle
+            ? allRows.filter((c) =>
+                (c.name || '').toLowerCase().includes(needle) ||
+                (c.target || '').toLowerCase().includes(needle) ||
+                (c.type || '').toLowerCase().includes(needle),
+              )
+            : allRows;
+          return (
           <div className="rounded-md border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-left">
@@ -108,7 +122,8 @@ export function UptimeChecksPage() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        }}
       </AsyncView>
 
       <AddCheckDialog open={addOpen} onOpenChange={setAddOpen} />

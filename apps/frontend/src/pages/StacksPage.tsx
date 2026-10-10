@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/dialog';
 import { PlusIcon, PencilIcon, Trash2Icon, XIcon, CheckCircleIcon, AlertCircleIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 import { useConfirm } from '@/components/ui/confirm-dialog';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 import yaml from 'js-yaml';
 
 const PLACEHOLDER = `version: "3.8"
@@ -47,6 +49,11 @@ export function StacksPage() {
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
   const confirm = useConfirm();
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filteredStacks = needle
+    ? (stacks ?? []).filter((s: any) => (s.Name ?? s.name ?? '').toLowerCase().includes(needle))
+    : (stacks ?? []);
 
   // Esc to close editor with dirty-check.
   useEffect(() => {
@@ -137,7 +144,7 @@ export function StacksPage() {
 
   async function handleDeploy() {
     setDeployError('');
-    if (!stackName.trim()) { setDeployError('Stack adı gerekli.'); return; }
+    if (!stackName.trim()) { setDeployError('Stack name is required.'); return; }
     // Env vars'ı MongoDB'ye kaydet
     const filteredVars = envVars.filter(v => v.key.trim());
     if (filteredVars.length > 0) {
@@ -219,10 +226,10 @@ export function StacksPage() {
         <div className="flex items-center justify-between px-6 py-3 border-b bg-card shrink-0">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => setEditorMode('none')}>
-              <XIcon className="h-4 w-4 mr-1" />Kapat
+              <XIcon className="h-4 w-4 mr-1" />Close
             </Button>
             <h1 className="text-lg font-semibold">
-              {editorMode === 'new' ? 'Yeni Stack Deploy Et' : `Stack Düzenle: `}
+              {editorMode === 'new' ? 'Deploy new stack' : `Edit stack: `}
               {editorMode === 'edit' && <span className="text-primary">{stackName}</span>}
             </h1>
           </div>
@@ -235,7 +242,7 @@ export function StacksPage() {
                   onChange={e => setForceUpdate(e.target.checked)}
                   className="rounded"
                 />
-                Force Update (image yeniden çek)
+                Force update (re-pull image)
               </label>
             )}
             <button
@@ -257,19 +264,19 @@ export function StacksPage() {
           </div>
         </div>
 
-        {/* Stack adı (yeni stack için) */}
+        {/* Stack name (for new stacks) */}
         {editorMode === 'new' && (
           <div className="px-6 py-3 border-b bg-card shrink-0">
             <Input
               value={stackName}
               onChange={e => setStackName(e.target.value)}
-              placeholder="stack-adı"
+              placeholder="stack-name"
               className="max-w-xs font-mono"
             />
           </div>
         )}
 
-        {/* Hata / başarı bandı */}
+        {/* Error / success banner */}
         {deployError && (
           <div className="px-6 py-2 bg-destructive/10 border-b border-destructive/30 text-sm text-destructive font-mono shrink-0 max-h-40 overflow-y-auto whitespace-pre-wrap">
             ⚠️ {deployError}
@@ -277,7 +284,7 @@ export function StacksPage() {
         )}
         {yamlValid === true && !deployError && (
           <div className="px-6 py-2 bg-green-500/10 border-b border-green-500/30 text-sm text-green-400 shrink-0">
-            ✅ YAML geçerli
+            ✅ YAML valid
           </div>
         )}
 
@@ -380,26 +387,28 @@ export function StacksPage() {
         </Button>
       </div>
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search stacks by name" />
+
       {isLoading ? (
         <div className="flex items-center justify-center h-32">
-          <p className="text-muted-foreground">Yükleniyor...</p>
+          <p className="text-muted-foreground">Loading…</p>
         </div>
       ) : (
         <div className="rounded-lg border overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/50">
               <tr>
-                <th className="text-left px-4 py-3 font-medium">Ad</th>
-                <th className="text-left px-4 py-3 font-medium">Servisler</th>
+                <th className="text-left px-4 py-3 font-medium">Name</th>
+                <th className="text-left px-4 py-3 font-medium">Services</th>
                 <th className="text-left px-4 py-3 font-medium">Tasks</th>
-                <th className="text-left px-4 py-3 font-medium">İşlemler</th>
+                <th className="text-left px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {(stacks ?? []).length === 0 && (
-                <tr><td colSpan={4} className="text-center py-8 text-muted-foreground">Stack bulunamadı.</td></tr>
+              {filteredStacks.length === 0 && (
+                <tr><td colSpan={4} className="text-center py-8 text-muted-foreground">{needle ? `No stacks match "${debounced}".` : 'No stacks found.'}</td></tr>
               )}
-              {(stacks ?? []).map((stack: any) => {
+              {filteredStacks.map((stack: any) => {
                 const n = stack.Name ?? stack.name ?? '—';
                 return (
                   <tr key={n} className="border-b last:border-0 hover:bg-muted/30">
@@ -411,7 +420,7 @@ export function StacksPage() {
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
                         <Button size="sm" variant="outline" onClick={() => openEdit(n)}>
-                          <PencilIcon className="h-3 w-3 mr-1" />Düzenle
+                          <PencilIcon className="h-3 w-3 mr-1" />Edit
                         </Button>
                         <Button size="sm" variant="destructive" onClick={() => setRemoveTarget(n)}>
                           <Trash2Icon className="h-3 w-3 mr-1" />Kaldır
@@ -429,14 +438,14 @@ export function StacksPage() {
       {/* Remove Dialog */}
       <Dialog open={!!removeTarget} onOpenChange={open => { if (!open) setRemoveTarget(null); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Stack Kaldır</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Remove stack</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground">{removeTarget}</span> stack'i kaldırılsın mı? Tüm servisler silinecek.
+            Remove <span className="font-semibold text-foreground">{removeTarget}</span>? All of its services will be deleted.
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRemoveTarget(null)} disabled={removing}>İptal</Button>
+            <Button variant="outline" onClick={() => setRemoveTarget(null)} disabled={removing}>Cancel</Button>
             <Button variant="destructive" onClick={handleRemove} disabled={removing}>
-              {removing ? 'Kaldırılıyor...' : 'Kaldır'}
+              {removing ? 'Removing…' : 'Remove'}
             </Button>
           </DialogFooter>
         </DialogContent>

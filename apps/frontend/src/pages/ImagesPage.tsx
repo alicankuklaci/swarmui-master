@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/dialog';
 import { useImages, useRemoveImage, usePruneImages } from '@/hooks/useDocker';
 import { api } from '@/lib/api';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 
 
@@ -52,6 +54,15 @@ export function ImagesPage() {
   const removeMutation = useRemoveImage(endpointId);
   const pruneMutation = usePruneImages(endpointId);
   const [updateStatus, setUpdateStatus] = useState<Record<string, any>>({});
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
+  const filteredImages = needle
+    ? (images ?? []).filter((img: any) => {
+        const tags = (img.RepoTags || []).join(' ').toLowerCase();
+        const id = (img.Id || '').toLowerCase();
+        return tags.includes(needle) || id.includes(needle);
+      })
+    : (images ?? []);
 
   useEffect(() => {
     if (!images || images.length === 0 || !endpointId) return;
@@ -132,6 +143,8 @@ export function ImagesPage() {
         </div>
       )}
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search images by repo, tag, or ID" />
+
       <div className="rounded-md border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -153,14 +166,14 @@ export function ImagesPage() {
                     Loading images...
                   </td>
                 </tr>
-              ) : !images || images.length === 0 ? (
+              ) : filteredImages.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                    No images found
+                    {needle ? `No images match "${debounced}".` : 'No images found'}
                   </td>
                 </tr>
               ) : (
-                images.flatMap((image: any) => {
+                filteredImages.flatMap((image: any) => {
                   const tags: string[] =
                     image.RepoTags && image.RepoTags.length > 0
                       ? image.RepoTags

@@ -17,6 +17,8 @@ import {
 } from '@/hooks/useNotificationChannels';
 import { toast } from '@/hooks/useToast';
 import { formatDate } from '@/lib/utils';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 export function NotificationChannelsPage() {
   const query = useNotificationChannels();
@@ -25,6 +27,8 @@ export function NotificationChannelsPage() {
   const test = useTestChannel();
   const confirm = useConfirm();
   const [addOpen, setAddOpen] = useState(false);
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
 
   async function doTest(id: string) {
     try {
@@ -41,11 +45,20 @@ export function NotificationChannelsPage() {
         description="Telegram, Slack, Email and Webhooks. Attach channels to alarm rules at /monitoring/rules."
         actions={<Button onClick={() => setAddOpen(true)}><Plus className="w-4 h-4 mr-1" />Add Channel</Button>}
       />
+      <SearchInput value={search} onChange={setSearch} placeholder="Search channels by name or type" />
+
       <AsyncView
         query={query}
         empty={<EmptyState icon={Send} title="No channels yet" message="Create your first channel to start receiving alarms." action={<Button onClick={() => setAddOpen(true)}>Add Channel</Button>} />}
       >
-        {(rows: NotificationChannel[]) => (
+        {(allRows: NotificationChannel[]) => {
+          const rows = needle
+            ? allRows.filter((c) =>
+                (c.name || '').toLowerCase().includes(needle) ||
+                (c.type || '').toLowerCase().includes(needle),
+              )
+            : allRows;
+          return (
           <div className="rounded-md border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-left">
@@ -94,7 +107,8 @@ export function NotificationChannelsPage() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        }}
       </AsyncView>
       <AddChannelDialog open={addOpen} onOpenChange={setAddOpen} />
     </div>

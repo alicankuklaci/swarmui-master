@@ -13,6 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { formatDate } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 const RESOURCES = ['containers', 'services', 'images', 'volumes', 'networks', 'stacks', 'nodes'];
 const ACTIONS = ['read', 'create', 'update', 'delete', 'exec', 'logs', 'pull', 'restart'];
@@ -25,6 +27,8 @@ export function RolesPage() {
   const [roleDescription, setRoleDescription] = useState('');
   const [permissions, setPermissions] = useState<Record<string, string[]>>({});
   const confirm = useConfirm();
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
 
   const { data, isLoading } = useQuery({
     queryKey: ['roles'],
@@ -94,6 +98,8 @@ export function RolesPage() {
         </Button>
       </div>
 
+      <SearchInput value={search} onChange={setSearch} placeholder="Search roles by name or description" />
+
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -110,9 +116,13 @@ export function RolesPage() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
               ) : (
-                data?.map((role: any) => (
+                (data ?? []).filter((role: any) =>
+                  !needle ||
+                  (role.name || '').toLowerCase().includes(needle) ||
+                  (role.description || '').toLowerCase().includes(needle),
+                ).map((role: any) => (
                   <Fragment key={role._id}>
                     <TableRow className="cursor-pointer" onClick={() => setExpandedRole(expandedRole === role._id ? null : role._id)}>
                       <TableCell>

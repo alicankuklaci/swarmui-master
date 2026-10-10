@@ -5,13 +5,17 @@ import { AsyncView } from '@/components/ui/async-view';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
 import { Container as ContainerIcon } from 'lucide-react';
-import { useContainers } from '@/hooks/useMonitoring';
+import { useContainers, nodeDisplay } from '@/hooks/useMonitoring';
 import { formatBytes } from '@/lib/utils';
+import { SearchInput } from '@/components/ui/search-input';
+import { useUrlSearch } from '@/hooks/useUrlSearch';
 
 export function ContainersMonitoringPage() {
   const [sort, setSort] = useState<'cpu' | 'mem'>('cpu');
   const [refreshMs, setRefreshMs] = useState(30_000);
   const query = useContainers({ sort, limit: 50 }, refreshMs);
+  const { query: search, setQuery: setSearch, debounced } = useUrlSearch();
+  const needle = debounced.toLowerCase();
 
   return (
     <div className="p-6 space-y-4">
@@ -32,11 +36,25 @@ export function ContainersMonitoringPage() {
           </div>
         }
       />
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search containers, images, stacks, or node"
+      />
       <AsyncView
         query={query}
         empty={<EmptyState icon={ContainerIcon} title="No containers reporting" message="Wait a sampling cycle after a fresh install." />}
       >
-        {(rows: any[]) => (
+        {(rows: any[]) => {
+          const filtered = needle
+            ? rows.filter((r) =>
+                (r.name || '').toLowerCase().includes(needle) ||
+                (r.image || '').toLowerCase().includes(needle) ||
+                (r.stackName || '').toLowerCase().includes(needle) ||
+                nodeDisplay(r).toLowerCase().includes(needle),
+              )
+            : rows;
+          return (
           <div className="rounded-md border overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/60 text-left">
@@ -51,14 +69,17 @@ export function ContainersMonitoringPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {filtered.length === 0 && (
+                  <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">No containers match "{debounced}"</td></tr>
+                )}
+                {filtered.map((r) => (
                   <tr key={r.containerId} className="border-t hover:bg-muted/30">
                     <td className="p-2 font-medium">
                       <Link to={`/monitoring/containers/${r.containerId}`} className="hover:underline">
                         {r.name}
                       </Link>
                     </td>
-                    <td className="p-2 text-xs text-muted-foreground">{r.nodeId}</td>
+                    <td className="p-2 text-xs text-muted-foreground" title={r.nodeId}>{nodeDisplay(r)}</td>
                     <td className="p-2 text-xs text-muted-foreground">{r.stackName || '—'}</td>
                     <td className="p-2 text-right font-mono tabular-nums">{(r.cpuPct ?? 0).toFixed(1)}</td>
                     <td className="p-2 text-right font-mono tabular-nums">{(r.memUsedPct ?? 0).toFixed(1)}</td>
@@ -71,7 +92,8 @@ export function ContainersMonitoringPage() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        }}
       </AsyncView>
     </div>
   );
