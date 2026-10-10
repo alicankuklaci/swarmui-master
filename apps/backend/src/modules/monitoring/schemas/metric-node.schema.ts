@@ -37,6 +37,9 @@ export class MetricNodeContainers {
 @Schema({ timestamps: false, collection: 'metric_nodes' })
 export class MetricNode {
   @Prop({ required: true, index: true }) nodeId: string;
+  // Human-readable hostname (e.g. "node01"), captured at collection time.
+  // Optional for backwards-compat; display layer should fall back to nodeId.
+  @Prop({ required: false, index: false }) nodeHostname?: string;
   @Prop({ required: true, index: true }) ts: Date;
   @Prop({ type: MetricNodeCpu, required: true }) cpu: MetricNodeCpu;
   @Prop({ type: MetricNodeMem, required: true }) mem: MetricNodeMem;

@@ -9,6 +9,7 @@ export interface AgentTarget {
   port: number;
   token?: string;
   tls?: boolean;
+  hostname?: string; // human-readable swarm hostname (e.g. "node01"), used for display
 }
 
 /**

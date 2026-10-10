@@ -89,7 +89,13 @@ export class MetricsCollectorService {
           (mgrAddr && mgrAddr !== '0.0.0.0' ? mgrAddr : null) ||
           n.Description?.Hostname;
         if (!nodeId || !addr) continue;
-        out.push({ nodeId, host: addr, port: this.agentPort, token: this.agentToken });
+        out.push({
+          nodeId,
+          host: addr,
+          port: this.agentPort,
+          token: this.agentToken,
+          hostname: n.Description?.Hostname,
+        });
       }
       return out;
     } catch (err: any) {
@@ -104,8 +110,11 @@ export class MetricsCollectorService {
     await Promise.all(targets.map(async (t) => {
       try {
         const resp = await this.agent.fetchJson<NodeMetricsResponse>(t, '/metrics/node');
+        // Prefer swarm-advertised hostname (t.hostname) over agent-reported one.
+        const hostname = t.hostname || resp.hostname;
         await this.nodeModel.create({
           nodeId: t.nodeId,
+          nodeHostname: hostname,
           ts: new Date(resp.ts || Date.now()),
           cpu: resp.cpu,
           mem: resp.mem,
@@ -117,6 +126,24 @@ export class MetricsCollectorService {
         this.logger.debug(`node metrics failed for ${t.nodeId}: ${err.message}`);
       }
     }));
+  }
+
+  /**
+   * Live map of docker nodeId → hostname. Lets controllers decorate old samples
+   * (which lack `nodeHostname`) and keep display names current.
+   */
+  async nodeIdToHostname(): Promise<Record<string, string>> {
+    try {
+      const dockerode = this.docker.getLocalConnection();
+      const nodes = await dockerode.listNodes();
+      const map: Record<string, string> = {};
+      for (const n of nodes) {
+        if (n.ID && n.Description?.Hostname) map[n.ID] = n.Description.Hostname;
+      }
+      return map;
+    } catch {
+      return {};
+    }
   }
 
   // We want 30s container sampling. CronExpression.EVERY_30_SECONDS fires both
