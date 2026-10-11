@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, unwrap } from '@/lib/api';
 import { useAppMutation } from './useAppMutation';
 
@@ -67,7 +67,46 @@ export function useDeleteChannel() {
 
 export function useTestChannel() {
   return useAppMutation(
-    (id: string) => api.post(`/notifications/channels/${id}/test`).then((r) => unwrap<{ success: boolean; error?: string }>(r)),
+    (id: string) => api.post(`/notifications/channels/${id}/test`).then((r) => unwrap<{ success: boolean; error?: string; info?: Record<string, any> }>(r)),
     { invalidate: [['notification-channels']] },
   );
+}
+
+export interface ChannelTestDebugResult {
+  success: boolean;
+  error?: string;
+  info?: Record<string, any>;
+  transcript?: string[];
+}
+
+/** Debug test — hits /test-debug and returns the full transcript. Does NOT raise a toast; the dialog renders the result inline. */
+export function useTestChannelDebug() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post(`/notifications/channels/${id}/test-debug`).then((r) => unwrap<ChannelTestDebugResult>(r)),
+  });
+}
+
+export interface NotificationLogEntry {
+  _id: string;
+  channelId: string;
+  channelName: string;
+  channelType: ChannelType;
+  ts: string;
+  success: boolean;
+  error?: string;
+  latencyMs: number;
+  test?: boolean;
+  info?: Record<string, any>;
+  transcript?: string[];
+}
+
+export function useChannelLogs(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['notification-channel-logs', id],
+    queryFn: () => api.get(`/notifications/channels/${id}/logs`, { params: { limit: 50 } })
+      .then((r) => unwrap<NotificationLogEntry[]>(r)),
+    enabled: !!id && enabled,
+    refetchOnWindowFocus: false,
+  });
 }

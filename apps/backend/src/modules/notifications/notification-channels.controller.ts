@@ -60,6 +60,13 @@ export class NotificationChannelsController {
     return this.svc.test(id);
   }
 
+  @Post(':id/test-debug')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Send a test notification and return the full transport transcript (SMTP debug / HTTP request-response) for troubleshooting' })
+  async testDebug(@Param('id') id: string) {
+    return this.svc.test(id, { withTranscript: true });
+  }
+
   @Get(':id/logs')
   @ApiOperation({ summary: 'Delivery log for one channel' })
   async logs(@Param('id') id: string, @Query('limit') limit?: number) {

@@ -1,9 +1,35 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import {
-  AlarmPayload, SnapshotPayload, ChannelAdapter, ChannelResult, ChannelFieldSchema,
+  AlarmPayload, SnapshotPayload, ChannelAdapter, ChannelResult, ChannelTestResult, ChannelFieldSchema,
   severityEmoji, fmtTs, formatTargetLine, formatSnapshotText,
 } from './channel.interface';
+
+/** Capture the SMTP transcript nodemailer would normally print to stdout. */
+function makeTranscriptLogger(bucket: string[]) {
+  const push = (level: string, args: any[]) => {
+    // nodemailer's logger passes (ctx, args[0], args[1]...) — the first arg is the
+    // template format object; everything after is the message. Flatten defensively.
+    const parts: string[] = [];
+    for (const a of args) {
+      if (a == null) continue;
+      if (typeof a === 'string') parts.push(a);
+      else if (typeof a === 'object') { try { parts.push(JSON.stringify(a)); } catch { /* ignore */ } }
+      else parts.push(String(a));
+    }
+    bucket.push(`[${level}] ${parts.join(' ')}`);
+    if (bucket.length > 500) bucket.splice(0, bucket.length - 500);
+  };
+  return {
+    level: () => 'debug',
+    trace: (...a: any[]) => push('trace', a),
+    debug: (...a: any[]) => push('debug', a),
+    info: (...a: any[]) => push('info', a),
+    warn: (...a: any[]) => push('warn', a),
+    error: (...a: any[]) => push('error', a),
+    fatal: (...a: any[]) => push('fatal', a),
+  };
+}
 
 export interface EmailConfig {
   smtpHost: string;
@@ -57,45 +83,115 @@ export class EmailChannel implements ChannelAdapter<EmailConfig> {
 
   async send(alarm: AlarmPayload, snapshot: SnapshotPayload, config: EmailConfig): Promise<ChannelResult> {
     const started = Date.now();
+    const transcript: string[] = [];
     try {
-      const transporter = this.buildTransporter(config);
+      const transporter = this.buildTransporter(config, transcript);
       const subject = this.buildSubject(alarm);
-      await transporter.sendMail({
+      const info: any = await transporter.sendMail({
         from: config.from,
         to: config.to.join(', '),
         subject,
         text: this.buildText(alarm, snapshot),
         html: this.buildHtml(alarm, snapshot),
       });
-      return { success: true, latencyMs: Date.now() - started };
+      const summary = this.summarizeInfo(info, config);
+      if (!summary.deliveredSomewhere) {
+        return {
+          success: false,
+          error: summary.reason || 'SMTP server rejected every recipient',
+          info: summary.info,
+          transcript,
+          latencyMs: Date.now() - started,
+        };
+      }
+      return { success: true, info: summary.info, transcript, latencyMs: Date.now() - started };
     } catch (err: any) {
       this.logger.warn(`Email send failed: ${err.message}`);
-      return { success: false, error: err.message, latencyMs: Date.now() - started };
+      return { success: false, error: err.message, transcript, latencyMs: Date.now() - started };
     }
   }
 
-  async test(config: EmailConfig): Promise<{ success: boolean; error?: string }> {
+  async test(config: EmailConfig): Promise<ChannelTestResult> {
+    const transcript: string[] = [];
     try {
-      const transporter = this.buildTransporter(config);
-      await transporter.sendMail({
+      const transporter = this.buildTransporter(config, transcript);
+      // verify() opens an SMTP session, runs EHLO + auth, closes it. Catches
+      // auth / DNS / TLS / firewall problems BEFORE we send a message that
+      // the server might queue-and-silently-drop.
+      try {
+        await transporter.verify();
+      } catch (verifyErr: any) {
+        return { success: false, error: `SMTP verify failed: ${verifyErr.message}`, transcript };
+      }
+      const info: any = await transporter.sendMail({
         from: config.from,
         to: config.to.join(', '),
         subject: '[SwarmUI] Test notification',
         text: 'This is a SwarmUI test notification. The channel is configured correctly.',
       });
-      return { success: true };
+      const summary = this.summarizeInfo(info, config);
+      if (!summary.deliveredSomewhere) {
+        return {
+          success: false,
+          error: summary.reason || 'SMTP server rejected every recipient',
+          info: summary.info,
+          transcript,
+        };
+      }
+      return { success: true, info: summary.info, transcript };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, transcript };
     }
   }
 
-  private buildTransporter(c: EmailConfig) {
-    return nodemailer.createTransport({
+  /**
+   * Turn nodemailer's `info` into something we can show on the debug panel
+   * and treat partial rejections as failures.
+   */
+  private summarizeInfo(info: any, config: EmailConfig): {
+    deliveredSomewhere: boolean;
+    reason?: string;
+    info: Record<string, any>;
+  } {
+    const accepted: string[] = Array.isArray(info?.accepted) ? info.accepted.map(String) : [];
+    const rejected: string[] = Array.isArray(info?.rejected) ? info.rejected.map(String) : [];
+    const pending: string[] = Array.isArray(info?.pending) ? info.pending.map(String) : [];
+    const summary: Record<string, any> = {
+      messageId: info?.messageId,
+      response: info?.response,
+      envelope: info?.envelope,
+      accepted,
+      rejected,
+      pending,
+      recipients: config.to,
+    };
+    const deliveredSomewhere = accepted.length > 0;
+    let reason: string | undefined;
+    if (!deliveredSomewhere) {
+      if (rejected.length) reason = `All recipients rejected: ${rejected.join(', ')}`;
+      else reason = 'SMTP accepted the session but delivered to no recipients';
+    } else if (rejected.length) {
+      // Partial — still mark info so the debug panel surfaces it.
+      summary.partialRejection = rejected;
+    }
+    return { deliveredSomewhere, reason, info: summary };
+  }
+
+  private buildTransporter(c: EmailConfig, transcript?: string[]) {
+    const opts: any = {
       host: c.smtpHost,
       port: Number(c.smtpPort) || 587,
       secure: Boolean(c.smtpSecure) || Number(c.smtpPort) === 465,
       auth: c.smtpUser ? { user: c.smtpUser, pass: c.smtpPass } : undefined,
-    });
+      connectionTimeout: 15_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
+    };
+    if (transcript) {
+      opts.logger = makeTranscriptLogger(transcript);
+      opts.debug = true;
+    }
+    return nodemailer.createTransport(opts);
   }
 
   private buildSubject(a: AlarmPayload): string {

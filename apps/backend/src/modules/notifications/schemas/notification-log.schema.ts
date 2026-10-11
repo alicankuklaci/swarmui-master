@@ -14,6 +14,12 @@ export class NotificationLog {
   @Prop({ required: true }) success: boolean;
   @Prop() error?: string;
   @Prop({ default: 0 }) latencyMs: number;
+  /** Transport-level details (SMTP accepted/rejected, HTTP status/response). */
+  @Prop({ type: Object }) info?: Record<string, any>;
+  /** Captured transport conversation (SMTP debug lines, HTTP request/response). */
+  @Prop({ type: [String], default: undefined }) transcript?: string[];
+  /** True when the log row was produced by the Send Test / Debug Test button. */
+  @Prop({ default: false }) test?: boolean;
 }
 
 export const NotificationLogSchema = SchemaFactory.createForClass(NotificationLog);

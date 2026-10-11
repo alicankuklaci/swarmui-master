@@ -10,7 +10,7 @@ import {
 } from './schemas/notification-log.schema';
 import { ChannelRegistryService } from './channel-registry.service';
 import { encrypt, decrypt } from '../../common/utils/crypto.util';
-import { AlarmPayload, SnapshotPayload, ChannelResult } from './channels/channel.interface';
+import { AlarmPayload, SnapshotPayload, ChannelResult, ChannelTestResult } from './channels/channel.interface';
 
 export interface CreateChannelDto {
   name: string;
@@ -92,7 +92,7 @@ export class NotificationChannelsService {
     return { ok: true };
   }
 
-  async test(id: string): Promise<{ success: boolean; error?: string }> {
+  async test(id: string, opts: { withTranscript?: boolean } = {}): Promise<ChannelTestResult> {
     const c = await this.findOneRaw(id);
     const config = this.decryptConfig(c);
     const adapter = this.registry.get(c.type);
@@ -111,7 +111,18 @@ export class NotificationChannelsService {
       success: result.success,
       error: result.error,
       latencyMs,
+      info: result.info,
+      // Always persist the transcript — a cheap +KB per attempt gives you a
+      // post-mortem when the Send Test button lied earlier.
+      transcript: result.transcript,
+      test: true,
     });
+
+    // The "Send Test" button on the list page only cares about pass/fail.
+    // The Debug dialog opts into the full response via withTranscript=true.
+    if (!opts.withTranscript) {
+      return { success: result.success, error: result.error, info: result.info };
+    }
     return result;
   }
 
@@ -136,6 +147,8 @@ export class NotificationChannelsService {
       success: result.success,
       error: result.error,
       latencyMs: result.latencyMs,
+      info: result.info,
+      transcript: result.transcript,
     });
     return result;
   }

@@ -2,9 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as https from 'https';
 import { URL } from 'url';
 import {
-  AlarmPayload, SnapshotPayload, ChannelAdapter, ChannelResult, ChannelFieldSchema,
+  AlarmPayload, SnapshotPayload, ChannelAdapter, ChannelResult, ChannelTestResult, ChannelFieldSchema,
   severityEmoji, fmtTs, formatTargetLine, formatSnapshotText,
 } from './channel.interface';
+
+interface HttpTranscriptResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}
 
 export interface SlackConfig {
   webhookUrl?: string;
@@ -48,38 +55,49 @@ export class SlackChannel implements ChannelAdapter<SlackConfig> {
 
   async send(alarm: AlarmPayload, snapshot: SnapshotPayload, config: SlackConfig): Promise<ChannelResult> {
     const started = Date.now();
+    const transcript: string[] = [];
     try {
       const blocks = this.buildBlocks(alarm, snapshot);
-      if (config.webhookUrl) {
-        await this.postJson(config.webhookUrl, { blocks });
-      } else {
-        await this.postJson('https://slack.com/api/chat.postMessage', {
-          channel: config.channelId,
-          blocks,
-        }, { Authorization: `Bearer ${config.botToken}` });
-      }
-      return { success: true, latencyMs: Date.now() - started };
+      const res = config.webhookUrl
+        ? await this.postJson(config.webhookUrl, { blocks }, {}, transcript)
+        : await this.postJson('https://slack.com/api/chat.postMessage', { channel: config.channelId, blocks }, { Authorization: `Bearer ${config.botToken}` }, transcript);
+      const info = this.summarize(res, !!config.webhookUrl);
+      if (!info.ok) return { success: false, error: info.error, info: info.summary, transcript, latencyMs: Date.now() - started };
+      return { success: true, info: info.summary, transcript, latencyMs: Date.now() - started };
     } catch (err: any) {
       this.logger.warn(`Slack send failed: ${err.message}`);
-      return { success: false, error: err.message, latencyMs: Date.now() - started };
+      return { success: false, error: err.message, transcript, latencyMs: Date.now() - started };
     }
   }
 
-  async test(config: SlackConfig): Promise<{ success: boolean; error?: string }> {
+  async test(config: SlackConfig): Promise<ChannelTestResult> {
+    const transcript: string[] = [];
     try {
       const payload = { text: ':white_check_mark: SwarmUI test notification — channel is working.' };
-      if (config.webhookUrl) {
-        await this.postJson(config.webhookUrl, payload);
-      } else {
-        await this.postJson('https://slack.com/api/chat.postMessage', {
-          channel: config.channelId,
-          text: payload.text,
-        }, { Authorization: `Bearer ${config.botToken}` });
-      }
-      return { success: true };
+      const res = config.webhookUrl
+        ? await this.postJson(config.webhookUrl, payload, {}, transcript)
+        : await this.postJson('https://slack.com/api/chat.postMessage', { channel: config.channelId, text: payload.text }, { Authorization: `Bearer ${config.botToken}` }, transcript);
+      const info = this.summarize(res, !!config.webhookUrl);
+      if (!info.ok) return { success: false, error: info.error, info: info.summary, transcript };
+      return { success: true, info: info.summary, transcript };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, transcript };
     }
+  }
+
+  private summarize(res: HttpTranscriptResponse, isWebhook: boolean) {
+    const summary: Record<string, any> = { httpStatus: res.status, mode: isWebhook ? 'webhook' : 'bot' };
+    let parsed: any;
+    try { parsed = JSON.parse(res.body); } catch { parsed = { _raw: res.body.slice(0, 500) }; }
+    summary.response = parsed;
+    if (res.status < 200 || res.status >= 300) {
+      return { ok: false, error: `HTTP ${res.status}: ${res.body.slice(0, 200)}`, summary };
+    }
+    if (!isWebhook && parsed?.ok === false) {
+      return { ok: false, error: `Slack API error: ${parsed.error || 'unknown'}`, summary };
+    }
+    // Webhook response is plain "ok" or JSON — treat 2xx as success.
+    return { ok: true as const, error: undefined, summary };
   }
 
   private buildBlocks(a: AlarmPayload, s: SnapshotPayload) {
@@ -102,10 +120,17 @@ export class SlackChannel implements ChannelAdapter<SlackConfig> {
     return blocks;
   }
 
-  private postJson(urlStr: string, payload: Record<string, any>, extraHeaders: Record<string, string> = {}): Promise<void> {
+  private postJson(urlStr: string, payload: Record<string, any>, extraHeaders: Record<string, string> = {}, transcript?: string[]): Promise<HttpTranscriptResponse> {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify(payload);
       const u = new URL(urlStr);
+      const redactedHeaders: Record<string, string> = {};
+      for (const [k, v] of Object.entries({ 'Content-Type': 'application/json', ...extraHeaders })) {
+        redactedHeaders[k] = /^authorization$/i.test(k) ? 'Bearer ***' : v;
+      }
+      transcript?.push(`→ POST ${u.protocol}//${u.hostname}${u.pathname}${u.search || ''}`);
+      transcript?.push(`→ headers ${JSON.stringify(redactedHeaders)}`);
+      transcript?.push(`→ body ${body.length > 500 ? body.slice(0, 500) + '…' : body}`);
       const req = https.request({
         hostname: u.hostname,
         path: u.pathname + u.search,
@@ -121,18 +146,13 @@ export class SlackChannel implements ChannelAdapter<SlackConfig> {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            // slack.com/api/* returns 200 OK even for API errors — check `ok`.
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed && parsed.ok === false) return reject(new Error(parsed.error || 'Slack API error'));
-            } catch { /* webhook returns plain "ok" */ }
-            resolve();
-          } else reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+          transcript?.push(`← HTTP ${res.statusCode} ${res.statusMessage || ''}`);
+          transcript?.push(`← body ${data.length > 500 ? data.slice(0, 500) + '…' : data}`);
+          resolve({ status: res.statusCode || 0, statusText: res.statusMessage || '', headers: res.headers, body: data });
         });
       });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Slack timeout')); });
+      req.on('error', (e) => { transcript?.push(`× socket error ${e.message}`); reject(e); });
+      req.on('timeout', () => { req.destroy(); transcript?.push('× timeout after 10s'); reject(new Error('Slack timeout')); });
       req.write(body);
       req.end();
     });

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, UsersRound, Shield, Server, Settings,
@@ -5,7 +6,7 @@ import {
   HardDrive, Image, Layers, GitBranch, Grid3X3,
   LayoutGrid, Package, GitMerge, HardDriveDownload, Lock, KeyRound, Bell,
   Radio, Sliders, Send, Zap,
- ClipboardList,} from 'lucide-react';
+ ClipboardList, Search, X as IconX,} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api, unwrap } from '@/lib/api';
@@ -98,6 +99,8 @@ export function Sidebar() {
     && (user.permissions.includes('admin:*') || user.permissions.includes('admin'));
   const isAdmin = hasAdminPermission || user?.role === 'admin';
   const { t } = useTranslation();
+  const [search, setSearch] = useState('');
+  const needle = search.trim().toLowerCase();
 
   // Firing-alarm badge for the Alarms nav item. Only queries when the user
   // has access to monitoring endpoints (admin/operator) to avoid 403 noise.
@@ -143,12 +146,46 @@ export function Sidebar() {
         )}
       </div>
 
+      {sidebarOpen && (
+        <div className="px-3 pt-3 pb-1">
+          <div className="relative">
+            <Search className="w-4 h-4 text-gray-500 absolute left-2 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={String(t('nav.search', { defaultValue: 'Search menu…' }))}
+              aria-label="Search navigation menu"
+              className="w-full bg-gray-800 text-gray-100 placeholder-gray-500 text-sm rounded px-7 py-1.5 border border-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-200"
+              >
+                <IconX className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <nav className="flex-1 py-2 overflow-y-auto">
         {navSections.filter((section) => {
           if (section.titleKey === 'nav.admin') return isAdmin;
           if (section.titleKey === 'nav.observability') return canSeeMonitoring;
           return true;
-        }).map((section, si) => (
+        }).map((section, si) => {
+          const permittedItems = section.items.filter((item: any) => !item.requiresAdmin || isAdmin);
+          const visibleItems = needle
+            ? permittedItems.filter((item: any) => {
+                const label = String(t(item.labelKey, { defaultValue: item.defaultLabel || item.labelKey })).toLowerCase();
+                return label.includes(needle) || item.to.toLowerCase().includes(needle);
+              })
+            : permittedItems;
+          if (needle && visibleItems.length === 0) return null;
+          return (
           <div key={si} className="mb-1">
             {section.titleKey && sidebarOpen && (
               <div className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -158,7 +195,7 @@ export function Sidebar() {
             {section.titleKey && !sidebarOpen && (
               <div className="my-1 mx-3 border-t border-gray-700" />
             )}
-            {section.items.filter((item: any) => !item.requiresAdmin || isAdmin).map((item: any) => (
+            {visibleItems.map((item: any) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -190,7 +227,8 @@ export function Sidebar() {
               </NavLink>
             ))}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* Version bilgisi */}

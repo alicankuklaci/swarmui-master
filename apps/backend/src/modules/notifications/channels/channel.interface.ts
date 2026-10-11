@@ -27,12 +27,24 @@ export interface ChannelResult {
   success: boolean;
   error?: string;
   latencyMs: number;
+  /** Transport-level response (SMTP info, HTTP status/body, …). Safe to show on the debug panel. */
+  info?: Record<string, any>;
+  /** Lines captured from the underlying transport (SMTP transcript, HTTP request/response). */
+  transcript?: string[];
+}
+
+/** Richer shape for test calls — includes everything the debug panel needs. */
+export interface ChannelTestResult {
+  success: boolean;
+  error?: string;
+  info?: Record<string, any>;
+  transcript?: string[];
 }
 
 export interface ChannelAdapter<Config = any> {
   readonly type: 'telegram' | 'slack' | 'email' | 'webhook';
   send(alarm: AlarmPayload, snapshot: SnapshotPayload, config: Config): Promise<ChannelResult>;
-  test(config: Config): Promise<{ success: boolean; error?: string }>;
+  test(config: Config): Promise<ChannelTestResult>;
   mask(config: Config): Record<string, any>;
   /** Static schema for the frontend's dynamic form renderer. */
   schema(): ChannelFieldSchema[];

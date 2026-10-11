@@ -3,8 +3,15 @@ import * as https from 'https';
 import * as http from 'http';
 import { URL } from 'url';
 import {
-  AlarmPayload, SnapshotPayload, ChannelAdapter, ChannelResult, ChannelFieldSchema,
+  AlarmPayload, SnapshotPayload, ChannelAdapter, ChannelResult, ChannelTestResult, ChannelFieldSchema,
 } from './channel.interface';
+
+interface HttpTranscriptResponse {
+  status: number;
+  statusText: string;
+  headers: Record<string, string | string[] | undefined>;
+  body: string;
+}
 
 export interface WebhookConfig {
   url: string;
@@ -59,24 +66,37 @@ export class WebhookChannel implements ChannelAdapter<WebhookConfig> {
 
   async send(alarm: AlarmPayload, snapshot: SnapshotPayload, config: WebhookConfig): Promise<ChannelResult> {
     const started = Date.now();
+    const transcript: string[] = [];
     try {
       const body = this.buildBody(alarm, snapshot, config);
-      await this.request(config.url, config.method || 'POST', body, config.headers || {});
-      return { success: true, latencyMs: Date.now() - started };
+      const res = await this.request(config.url, config.method || 'POST', body, config.headers || {}, transcript);
+      const info = this.summarize(res);
+      if (!info.ok) return { success: false, error: info.error, info: info.summary, transcript, latencyMs: Date.now() - started };
+      return { success: true, info: info.summary, transcript, latencyMs: Date.now() - started };
     } catch (err: any) {
       this.logger.warn(`Webhook send failed: ${err.message}`);
-      return { success: false, error: err.message, latencyMs: Date.now() - started };
+      return { success: false, error: err.message, transcript, latencyMs: Date.now() - started };
     }
   }
 
-  async test(config: WebhookConfig): Promise<{ success: boolean; error?: string }> {
+  async test(config: WebhookConfig): Promise<ChannelTestResult> {
+    const transcript: string[] = [];
     try {
       const body = JSON.stringify({ text: 'SwarmUI webhook test', ts: new Date().toISOString() });
-      await this.request(config.url, config.method || 'POST', body, config.headers || {});
-      return { success: true };
+      const res = await this.request(config.url, config.method || 'POST', body, config.headers || {}, transcript);
+      const info = this.summarize(res);
+      if (!info.ok) return { success: false, error: info.error, info: info.summary, transcript };
+      return { success: true, info: info.summary, transcript };
     } catch (err: any) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.message, transcript };
     }
+  }
+
+  private summarize(res: HttpTranscriptResponse) {
+    const summary: Record<string, any> = { httpStatus: res.status };
+    try { summary.response = JSON.parse(res.body); } catch { summary.response = res.body.slice(0, 500); }
+    const ok = res.status >= 200 && res.status < 300;
+    return { ok, error: ok ? undefined : `HTTP ${res.status}: ${res.body.slice(0, 200)}`, summary };
   }
 
   private buildBody(a: AlarmPayload, s: SnapshotPayload, c: WebhookConfig): string {
@@ -92,10 +112,17 @@ export class WebhookChannel implements ChannelAdapter<WebhookConfig> {
     });
   }
 
-  private request(urlStr: string, method: string, body: string, headers: Record<string, string>): Promise<void> {
+  private request(urlStr: string, method: string, body: string, headers: Record<string, string>, transcript?: string[]): Promise<HttpTranscriptResponse> {
     return new Promise((resolve, reject) => {
       const u = new URL(urlStr);
       const lib = u.protocol === 'https:' ? https : http;
+      const redactedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      for (const [k, v] of Object.entries(headers || {})) {
+        redactedHeaders[k] = /authorization|api[-_]?key|token|secret/i.test(k) ? '***' : v;
+      }
+      transcript?.push(`→ ${method} ${u.protocol}//${u.hostname}${u.pathname}${u.search || ''}`);
+      transcript?.push(`→ headers ${JSON.stringify(redactedHeaders)}`);
+      transcript?.push(`→ body ${body.length > 500 ? body.slice(0, 500) + '…' : body}`);
       const req = lib.request({
         hostname: u.hostname,
         port: u.port || (u.protocol === 'https:' ? 443 : 80),
@@ -111,12 +138,13 @@ export class WebhookChannel implements ChannelAdapter<WebhookConfig> {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) resolve();
-          else reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+          transcript?.push(`← HTTP ${res.statusCode} ${res.statusMessage || ''}`);
+          transcript?.push(`← body ${data.length > 500 ? data.slice(0, 500) + '…' : data}`);
+          resolve({ status: res.statusCode || 0, statusText: res.statusMessage || '', headers: res.headers, body: data });
         });
       });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Webhook timeout')); });
+      req.on('error', (e) => { transcript?.push(`× socket error ${e.message}`); reject(e); });
+      req.on('timeout', () => { req.destroy(); transcript?.push('× timeout after 10s'); reject(new Error('Webhook timeout')); });
       req.write(body);
       req.end();
     });
