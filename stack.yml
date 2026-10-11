@@ -1,5 +1,9 @@
 version: '3.8'
 
+# All secrets are substituted at deploy time from .env.prod (gitignored).
+# Deploy:  set -a; . ./.env.prod; set +a; docker stack deploy -c stack.yml swarmui-master
+# Required vars: MONGO_ROOT_PASSWORD, REDIS_PASSWORD, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET
+
 services:
   frontend:
     image: alicankuklaci/swarmui-master-frontend:latest
@@ -22,17 +26,17 @@ services:
       BACKEND_PORT: 3001
       FRONTEND_URL: http://212.83.131.111:1519
       CORS_ORIGINS: http://212.83.131.111:1519
-      MONGODB_URI: mongodb://admin:REDACTED-DB-PW@mongo:27017/swarmui-master?authSource=admin
+      MONGODB_URI: mongodb://admin:${MONGO_ROOT_PASSWORD}@mongo:27017/swarmui-master?authSource=admin
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: "REDACTED-DB-PW"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       THROTTLE_TTL: 60000
       THROTTLE_LIMIT: 100
       DOCKER_SOCKET_PATH: /var/run/docker.sock
-      JWT_ACCESS_SECRET: "REDACTED-JWT-ACCESS-SECRET"
-      JWT_REFRESH_SECRET: "REDACTED-JWT-REFRESH-SECRET"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -48,7 +52,7 @@ services:
     image: mongo:4.4
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: "REDACTED-DB-PW"
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: swarmui-master
     volumes:
       - mongo_data:/data/db
@@ -61,7 +65,7 @@ services:
 
   redis:
     image: redis:7.2-alpine
-    command: redis-server --requirepass "REDACTED-DB-PW"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     networks:

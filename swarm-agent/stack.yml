@@ -1,9 +1,11 @@
 version: '3.8'
+# Deploy:  set -a; . ./.env.agent; set +a; docker stack deploy -c stack.yml swarmui-agent
+# Required vars: AGENT_TOKEN
 services:
   swarmui-agent:
     image: alicankuklaci/swarmui-agent:latest
     environment:
-      - AGENT_TOKEN=supersecret
+      - AGENT_TOKEN=${AGENT_TOKEN}
       - AGENT_READONLY=false
       - DOCKER_SOCKET=/var/run/docker.sock
     volumes:
