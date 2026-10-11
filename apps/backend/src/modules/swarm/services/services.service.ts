@@ -145,22 +145,54 @@ export class ServicesService {
       tail,
       timestamps: true,
     } as any, (err: any, stream: any) => {
-      if (err) {
-        subject.error(err);
-        return;
-      }
-      if (!stream) {
-        subject.complete();
-        return;
-      }
+      try {
+        if (err) {
+          subject.error(err);
+          return;
+        }
+        if (!stream) {
+          subject.complete();
+          return;
+        }
 
-      (docker.modem as any).demuxStream(stream,
-        { write: (chunk: Buffer) => { subject.next({ data: { type: 'stdout', text: chunk.toString('utf8') } } as MessageEvent); } },
-        { write: (chunk: Buffer) => { subject.next({ data: { type: 'stderr', text: chunk.toString('utf8') } } as MessageEvent); } },
-      );
+        // Strip Docker binary header (8 bytes: stream-type, 0, 0, 0, size[4])
+        const stripHeader = (chunk: Buffer): { stdout: string; stderr: string } => {
+          const outParts: string[] = [];
+          const errParts: string[] = [];
+          let offset = 0;
+          while (offset < chunk.length) {
+            if (offset + 8 > chunk.length) break;
+            const streamType = chunk.readUInt8(offset); // 1=stdout, 2=stderr
+            const size = chunk.readUInt32BE(offset + 4);
+            if (offset + 8 + size > chunk.length) break;
+            const text = chunk.slice(offset + 8, offset + 8 + size).toString('utf8');
+            if (streamType === 2) errParts.push(text); else outParts.push(text);
+            offset += 8 + size;
+          }
+          return { stdout: outParts.join(''), stderr: errParts.join('') };
+        };
 
-      stream.on('end', () => subject.complete());
-      stream.on('error', (e: any) => subject.error(e));
+        // dockerode returns a Buffer when follow=false, a Readable when follow=true
+        if (typeof stream.on !== 'function') {
+          if (Buffer.isBuffer(stream)) {
+            const { stdout, stderr } = stripHeader(stream);
+            if (stdout) subject.next({ data: { type: 'stdout', text: stdout } } as MessageEvent);
+            if (stderr) subject.next({ data: { type: 'stderr', text: stderr } } as MessageEvent);
+          }
+          subject.complete();
+          return;
+        }
+
+        (docker.modem as any).demuxStream(stream,
+          { write: (chunk: Buffer) => { subject.next({ data: { type: 'stdout', text: chunk.toString('utf8') } } as MessageEvent); } },
+          { write: (chunk: Buffer) => { subject.next({ data: { type: 'stderr', text: chunk.toString('utf8') } } as MessageEvent); } },
+        );
+
+        stream.on('end', () => subject.complete());
+        stream.on('error', (e: any) => subject.error(e));
+      } catch (e) {
+        subject.error(e);
+      }
     });
 
     return subject.asObservable();

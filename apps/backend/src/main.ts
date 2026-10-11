@@ -164,4 +164,15 @@ async function bootstrap() {
   console.log(`Swagger docs: http://localhost:${port}/api/docs`);
   console.log(`OpenAPI JSON: http://localhost:${port}/api/docs-json`);
 }
+// Last-resort guard: a thrown error from inside a dockerode callback (or any
+// other library that invokes user code synchronously from an event-emitter)
+// used to crash the whole process. Log and keep running so Swarm doesn't
+// mark the task as failed and give up after N retries.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err?.stack || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
 bootstrap();

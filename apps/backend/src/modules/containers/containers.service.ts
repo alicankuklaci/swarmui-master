@@ -221,36 +221,50 @@ export class ContainersService {
       tail,
       timestamps: true,
     }, (err: any, stream: any) => {
-      if (err) {
-        subject.error(err);
-        return;
-      }
-      if (!stream) {
-        subject.complete();
-        return;
-      }
-
-      // Strip Docker binary header (8 bytes: stream-type, 0, 0, 0, size[4])
-      const stripHeader = (chunk: Buffer): string => {
-        let offset = 0;
-        const parts: string[] = [];
-        while (offset < chunk.length) {
-          if (offset + 8 > chunk.length) { parts.push(chunk.slice(offset).toString('utf8')); break; }
-          const size = chunk.readUInt32BE(offset + 4);
-          if (size === 0) { offset += 8; continue; }
-          if (offset + 8 + size > chunk.length) { parts.push(chunk.slice(offset).toString('utf8')); break; }
-          parts.push(chunk.slice(offset + 8, offset + 8 + size).toString('utf8'));
-          offset += 8 + size;
+      try {
+        if (err) {
+          subject.error(err);
+          return;
         }
-        return parts.join('');
-      };
+        if (!stream) {
+          subject.complete();
+          return;
+        }
 
-      stream.on('data', (chunk: Buffer) => {
-        const text = stripHeader(chunk);
-        if (text) subject.next({ data: { type: 'stdout', text } } as MessageEvent);
-      });
-      stream.on('end', () => subject.complete());
-      stream.on('error', (e: any) => subject.error(e));
+        // Strip Docker binary header (8 bytes: stream-type, 0, 0, 0, size[4])
+        const stripHeader = (chunk: Buffer): string => {
+          let offset = 0;
+          const parts: string[] = [];
+          while (offset < chunk.length) {
+            if (offset + 8 > chunk.length) { parts.push(chunk.slice(offset).toString('utf8')); break; }
+            const size = chunk.readUInt32BE(offset + 4);
+            if (size === 0) { offset += 8; continue; }
+            if (offset + 8 + size > chunk.length) { parts.push(chunk.slice(offset).toString('utf8')); break; }
+            parts.push(chunk.slice(offset + 8, offset + 8 + size).toString('utf8'));
+            offset += 8 + size;
+          }
+          return parts.join('');
+        };
+
+        // dockerode returns a Buffer when follow=false, a Readable when follow=true
+        if (typeof stream.on !== 'function') {
+          if (Buffer.isBuffer(stream)) {
+            const text = stripHeader(stream);
+            if (text) subject.next({ data: { type: 'stdout', text } } as MessageEvent);
+          }
+          subject.complete();
+          return;
+        }
+
+        stream.on('data', (chunk: Buffer) => {
+          const text = stripHeader(chunk);
+          if (text) subject.next({ data: { type: 'stdout', text } } as MessageEvent);
+        });
+        stream.on('end', () => subject.complete());
+        stream.on('error', (e: any) => subject.error(e));
+      } catch (e) {
+        subject.error(e);
+      }
     });
 
     return subject.asObservable();
@@ -261,24 +275,34 @@ export class ContainersService {
     const subject = new Subject<MessageEvent>();
 
     docker.getContainer(id).stats({ stream: true }, (err: any, stream: any) => {
-      if (err) {
-        subject.error(err);
-        return;
-      }
-      if (!stream) {
-        subject.complete();
-        return;
-      }
+      try {
+        if (err) {
+          subject.error(err);
+          return;
+        }
+        if (!stream || typeof stream.on !== 'function') {
+          if (stream && Buffer.isBuffer(stream)) {
+            try {
+              const raw = JSON.parse(stream.toString());
+              subject.next({ data: this.parseStats(raw) } as MessageEvent);
+            } catch (_) {}
+          }
+          subject.complete();
+          return;
+        }
 
-      stream.on('data', (chunk: Buffer) => {
-        try {
-          const raw = JSON.parse(chunk.toString());
-          const stats = this.parseStats(raw);
-          subject.next({ data: stats } as MessageEvent);
-        } catch (_) {}
-      });
-      stream.on('end', () => subject.complete());
-      stream.on('error', (e: any) => subject.error(e));
+        stream.on('data', (chunk: Buffer) => {
+          try {
+            const raw = JSON.parse(chunk.toString());
+            const stats = this.parseStats(raw);
+            subject.next({ data: stats } as MessageEvent);
+          } catch (_) {}
+        });
+        stream.on('end', () => subject.complete());
+        stream.on('error', (e: any) => subject.error(e));
+      } catch (e) {
+        subject.error(e);
+      }
     });
 
     return subject.asObservable();
