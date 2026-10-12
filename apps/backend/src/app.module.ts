@@ -34,6 +34,10 @@ import { MigrationModule } from './migrations/migration.module';
 import { EventsModule } from './modules/events/events.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { PrometheusModule } from '@willsoto/nestjs-prometheus';
+import {
+  StorageCoreModule,
+  isSharedStorageEnabled,
+} from './modules/storage/storage-core.module';
 
 @Module({
   imports: [
@@ -90,6 +94,7 @@ import { PrometheusModule } from '@willsoto/nestjs-prometheus';
     EventsModule,
     MonitoringModule,
     PrometheusModule.register({ path: '/metrics' }),
+    ...(isSharedStorageEnabled(process.env.FEATURE_SHARED_STORAGE) ? [StorageCoreModule] : []),
   ],
   providers: [
     SyslogService,
