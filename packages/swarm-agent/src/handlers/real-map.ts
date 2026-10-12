@@ -15,6 +15,13 @@ import {
 } from './systemd';
 import { firewallAllowPortsHandler } from './firewall';
 import { seaweedfsHealthcheckHandler } from './healthcheck';
+import {
+  fstabAddHandler,
+  fstabRemoveHandler,
+  mountNfsHandler,
+  nfsExportAddHandler,
+  nfsExportRemoveHandler,
+} from './nfs';
 import { defaultExec, type Exec } from './exec';
 import type { HandlerMap } from './types';
 
@@ -61,8 +68,12 @@ export function realHandlerMap(exec: Exec = defaultExec): HandlerMap {
   map['seaweedfs-tls-bootstrap'] = tlsBootstrapNoopHandler(exec);
   // D5 implemented
   map['seaweedfs-cluster-healthcheck'] = seaweedfsHealthcheckHandler(exec);
-  // NFS commands (nfs-export-add/remove, mount-nfs, fstab-add/remove) remain
-  // NOOP until the NFS driver ships a plan; writing them before a consumer
-  // exists would be dead code.
+  // Sprint 6: NFS handlers. The NfsDriver plan now references these, so the
+  // earlier NOOP placeholders would miscount against a real install.
+  map['nfs-export-add'] = nfsExportAddHandler(exec);
+  map['nfs-export-remove'] = nfsExportRemoveHandler(exec);
+  map['mount-nfs'] = mountNfsHandler(exec);
+  map['fstab-add'] = fstabAddHandler(exec);
+  map['fstab-remove'] = fstabRemoveHandler(exec);
   return map;
 }

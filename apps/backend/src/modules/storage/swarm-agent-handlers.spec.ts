@@ -9,6 +9,14 @@ import {
   installSeaweedfsMountSystemdUnitHandler,
   mkdirSharedRootHandler,
   realHandlerMap,
+  fstabAddHandler,
+  fstabRemoveHandler,
+  mountNfsHandler,
+  nfsExportAddHandler,
+  nfsExportRemoveHandler,
+  NFS_EXPORTS_FILE,
+  NFS_FSTAB_FILE,
+  NFS_SENTINEL_DEFAULT,
   renderSeaweedfsMountUnit,
   SEAWEEDFS_CONTAINER_NAMES,
   SEAWEEDFS_MOUNT_UNIT_PATH,
@@ -790,6 +798,266 @@ describe('tlsBootstrapNoopHandler', () => {
   });
 });
 
+describe('nfsExportAddHandler', () => {
+  it('appends a sentinel-tagged line to /etc/exports and runs exportfs -ra', async () => {
+    const calls: { argv: string[]; stdin?: string }[] = [];
+    const stub: Exec = async (argv, opts) => {
+      calls.push({ argv, stdin: opts?.stdin });
+      // grep returns 1 (sentinel not present) → fall through to tee.
+      if (argv[0] === 'grep') return { ...okOutcome(), exitCode: 1 };
+      return okOutcome();
+    };
+    const result = await nfsExportAddHandler(stub)(
+      baseReq('nfs-export-add', {
+        exportPath: '/var/lib/swarmui/shared',
+        clients: '10.0.0.0/8',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(calls.map((c) => c.argv[0])).toEqual(['grep', 'tee', 'exportfs']);
+    expect(calls[1].argv).toEqual(['tee', '-a', NFS_EXPORTS_FILE]);
+    // Line format: <path> <clients>(<options>) # sentinel
+    expect(calls[1].stdin).toMatch(
+      new RegExp(
+        `^/var/lib/swarmui/shared 10\\.0\\.0\\.0/8\\([a-z0-9_,.=-]+\\) # ${NFS_SENTINEL_DEFAULT}\\n$`,
+      ),
+    );
+    expect(calls[2].argv).toEqual(['exportfs', '-ra']);
+  });
+
+  it('skips tee when the sentinel is already in /etc/exports and still runs exportfs -ra', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      // grep returns 0 → already present.
+      if (argv[0] === 'grep') return okOutcome();
+      return okOutcome();
+    };
+    const result = await nfsExportAddHandler(stub)(
+      baseReq('nfs-export-add', {
+        exportPath: '/var/lib/swarmui/shared',
+        clients: '10.0.0.0/8',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    // No tee between grep and exportfs.
+    expect(calls.map((c) => c[0])).toEqual(['grep', 'exportfs']);
+  });
+
+  it('rejects injection-shaped clients before touching exec', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      nfsExportAddHandler(stub)(
+        baseReq('nfs-export-add', {
+          exportPath: '/var/lib/swarmui/shared',
+          clients: '$(rm -rf /)',
+        }),
+      ),
+    ).rejects.toThrow(/invalid clients/);
+  });
+});
+
+describe('nfsExportRemoveHandler', () => {
+  it('runs sed -i /# <sentinel>$/d /etc/exports then exportfs -ra', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return okOutcome();
+    };
+    await nfsExportRemoveHandler(stub)(baseReq('nfs-export-remove'));
+    expect(calls[0]).toEqual([
+      'sed',
+      '-i',
+      `/# ${NFS_SENTINEL_DEFAULT}$/d`,
+      NFS_EXPORTS_FILE,
+    ]);
+    expect(calls[1]).toEqual(['exportfs', '-ra']);
+  });
+
+  it('does not run exportfs when sed failed', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return argv[0] === 'sed'
+        ? { ...okOutcome(), exitCode: 1, stderrTail: 'permission denied' }
+        : okOutcome();
+    };
+    const result = await nfsExportRemoveHandler(stub)(baseReq('nfs-export-remove'));
+    expect(result.exitCode).toBe(1);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('mountNfsHandler', () => {
+  it('mountpoint→skip when already mounted (idempotent)', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[0] === 'mountpoint') return okOutcome(); // exit 0 = mounted
+      return okOutcome();
+    };
+    const result = await mountNfsHandler(stub)(
+      baseReq('mount-nfs', {
+        server: 'node02',
+        remote: '/var/lib/swarmui/shared',
+        local: '/var/lib/swarmui/shared',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderrTail).toContain('already mounted');
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe('mountpoint');
+  });
+
+  it('mkdirs the target, then mount -t nfs with -o options and server:remote local', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      // mountpoint returns non-zero → not mounted → proceed.
+      if (argv[0] === 'mountpoint') return { ...okOutcome(), exitCode: 32 };
+      return okOutcome();
+    };
+    const result = await mountNfsHandler(stub)(
+      baseReq('mount-nfs', {
+        server: 'node02',
+        remote: '/var/lib/swarmui/shared',
+        local: '/var/lib/swarmui/shared',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(calls.map((c) => c[0])).toEqual(['mountpoint', 'mkdir', 'mount']);
+    const mount = calls[2];
+    expect(mount).toContain('-t');
+    expect(mount).toContain('nfs');
+    expect(mount).toContain('-o');
+    expect(mount).toContain('node02:/var/lib/swarmui/shared');
+    expect(mount[mount.length - 1]).toBe('/var/lib/swarmui/shared');
+  });
+
+  it('on action=umount, calls umount after mountpoint confirms mounted', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[0] === 'mountpoint') return okOutcome(); // mounted
+      return okOutcome();
+    };
+    const result = await mountNfsHandler(stub)(
+      baseReq('mount-nfs', { action: 'umount', local: '/mnt/x' }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(calls.map((c) => c[0])).toEqual(['mountpoint', 'umount']);
+    expect(calls[1]).toEqual(['umount', '/mnt/x']);
+  });
+
+  it('action=umount on a path that is not a mountpoint is a no-op', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[0] === 'mountpoint') return { ...okOutcome(), exitCode: 1 };
+      return okOutcome();
+    };
+    const result = await mountNfsHandler(stub)(
+      baseReq('mount-nfs', { action: 'umount', local: '/mnt/x' }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderrTail).toContain('not mounted');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('rejects an injection-shaped server before touching exec', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      mountNfsHandler(stub)(
+        baseReq('mount-nfs', {
+          server: 'node02;rm -rf /',
+          remote: '/x',
+          local: '/x',
+        }),
+      ),
+    ).rejects.toThrow(/invalid server/);
+  });
+});
+
+describe('fstabAddHandler', () => {
+  it('appends a sentinel-tagged NFS line to /etc/fstab', async () => {
+    const calls: { argv: string[]; stdin?: string }[] = [];
+    const stub: Exec = async (argv, opts) => {
+      calls.push({ argv, stdin: opts?.stdin });
+      if (argv[0] === 'grep') return { ...okOutcome(), exitCode: 1 };
+      return okOutcome();
+    };
+    const result = await fstabAddHandler(stub)(
+      baseReq('fstab-add', {
+        server: 'node02',
+        remote: '/var/lib/swarmui/shared',
+        local: '/var/lib/swarmui/shared',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(calls[0].argv).toEqual([
+      'grep',
+      '-qF',
+      `# ${NFS_SENTINEL_DEFAULT}`,
+      NFS_FSTAB_FILE,
+    ]);
+    expect(calls[1].argv).toEqual(['tee', '-a', NFS_FSTAB_FILE]);
+    expect(calls[1].stdin).toMatch(
+      /^node02:\/var\/lib\/swarmui\/shared \/var\/lib\/swarmui\/shared nfs [a-z0-9_,._=-]+ 0 0 # swarmui-nfs-shared\n$/,
+    );
+  });
+
+  it('is a no-op when the sentinel already exists in /etc/fstab', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[0] === 'grep') return okOutcome();
+      return okOutcome();
+    };
+    const result = await fstabAddHandler(stub)(
+      baseReq('fstab-add', {
+        server: 'node02',
+        remote: '/x',
+        local: '/x',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderrTail).toContain('idempotent-skip');
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('fstabRemoveHandler', () => {
+  it('runs sed -i /# <sentinel>$/d /etc/fstab', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return okOutcome();
+    };
+    await fstabRemoveHandler(stub)(baseReq('fstab-remove'));
+    expect(calls[0]).toEqual([
+      'sed',
+      '-i',
+      `/# ${NFS_SENTINEL_DEFAULT}$/d`,
+      NFS_FSTAB_FILE,
+    ]);
+  });
+
+  it('rejects an invalid sentinel before any exec', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      fstabRemoveHandler(stub)(
+        baseReq('fstab-remove', { sentinel: '; rm -rf /' }),
+      ),
+    ).rejects.toThrow(/invalid sentinel/);
+  });
+});
+
 describe('realHandlerMap()', () => {
   it('registers a handler for every whitelisted commandId', () => {
     const map = realHandlerMap(async () => okOutcome());
@@ -809,12 +1077,10 @@ describe('realHandlerMap()', () => {
     await map['mkdir-swarmui-shared-root']!(baseReq('mkdir-swarmui-shared-root'));
     await map['apt-install-fuse3']!(baseReq('apt-install-fuse3'));
     expect(argvCapture.length).toBeGreaterThan(0);
-    // Not yet implemented: still NOOP, never calls exec.
+    // After Sprint 6 every whitelisted commandId has a real handler; the
+    // only one that must not exec is the TLS bootstrap, which is a
+    // documented v1 no-op (dedicated handler, not NOOP_HANDLER).
     argvCapture.length = 0;
-    await map['nfs-export-add']!(baseReq('nfs-export-add'));
-    await map['mount-nfs']!(baseReq('mount-nfs'));
-    await map['fstab-add']!(baseReq('fstab-add'));
-    // TLS bootstrap: dedicated no-op handler for v1 — also must not exec.
     await map['seaweedfs-tls-bootstrap']!(baseReq('seaweedfs-tls-bootstrap'));
     expect(argvCapture).toHaveLength(0);
   });

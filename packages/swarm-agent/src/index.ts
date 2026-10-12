@@ -8,4 +8,5 @@ export * from './handlers/docker';
 export * from './handlers/systemd';
 export * from './handlers/firewall';
 export * from './handlers/healthcheck';
+export * from './handlers/nfs';
 export * from './handlers/real-map';
