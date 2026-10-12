@@ -9,4 +9,5 @@ export * from './handlers/systemd';
 export * from './handlers/firewall';
 export * from './handlers/healthcheck';
 export * from './handlers/nfs';
+export * from './handlers/tls';
 export * from './handlers/real-map';

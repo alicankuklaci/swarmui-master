@@ -1,4 +1,3 @@
-import * as crypto from 'node:crypto';
 import type { NodeExecRequest, NodeExecResult } from '@swarmui-master/storage-plan';
 import { defaultExec, type Exec, type ExecOutcome } from './exec';
 import type { CommandHandler } from './types';
@@ -135,31 +134,3 @@ export function systemctlEnableHandler(
   };
 }
 
-// --- commandId: seaweedfs-tls-bootstrap ------------------------------
-
-// v1 ships `insecure=true` as the only supported path on Debian/Ubuntu swarm
-// nodes behind a trusted overlay network. Sprint 7 wires a real cluster-CA
-// bootstrap (gen key + cert on master, distribute via SSH to each node,
-// register SPIFFE identity). Until then the handler is intentionally a
-// no-op that writes a visible marker so an operator who runs with
-// `insecure=false` sees exactly what happened and why.
-export function tlsBootstrapNoopHandler(_exec: Exec = defaultExec): CommandHandler {
-  return async (req) => {
-    const h = crypto
-      .createHash('sha256')
-      .update('tls-bootstrap-noop-v1')
-      .digest('hex')
-      .slice(0, 32);
-    return {
-      commandId: req.commandId,
-      nodeId: req.nodeId,
-      exitCode: 0,
-      stdoutHash: h,
-      stderrHash: h,
-      stderrTail:
-        'TLS bootstrap is a no-op in v1. Rerun install with insecure=true, ' +
-        'or wait for Sprint 7 cluster-CA support.',
-      durationMs: 0,
-    };
-  };
-}

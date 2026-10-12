@@ -17,13 +17,17 @@ import {
   NFS_EXPORTS_FILE,
   NFS_FSTAB_FILE,
   NFS_SENTINEL_DEFAULT,
+  parseNodeList,
   renderSeaweedfsMountUnit,
   SEAWEEDFS_CONTAINER_NAMES,
   SEAWEEDFS_MOUNT_UNIT_PATH,
   seaweedfsHealthcheckHandler,
+  seaweedfsTlsBootstrapHandler,
   systemctlEnableHandler,
   testMountWriteHandler,
-  tlsBootstrapNoopHandler,
+  TLS_BOOTSTRAP_DIR,
+  TLS_CA_CRT_PATH,
+  TLS_CA_KEY_PATH,
   type Exec,
   type ExecOutcome,
 } from '@swarmui-master/swarm-agent';
@@ -784,17 +788,154 @@ describe('seaweedfsHealthcheckHandler', () => {
   });
 });
 
-describe('tlsBootstrapNoopHandler', () => {
-  it('returns exit 0 with a visible marker explaining the v1 no-op', async () => {
+describe('seaweedfsTlsBootstrapHandler', () => {
+  // Each test stubs exec so we exercise argv composition + idempotency
+  // branches without touching the host filesystem.
+
+  it('rejects an injection-shaped node list before any exec', async () => {
     const stub: Exec = async () => {
       throw new Error('exec must not be called');
     };
-    const result = await tlsBootstrapNoopHandler(stub)(
-      baseReq('seaweedfs-tls-bootstrap'),
+    await expect(
+      seaweedfsTlsBootstrapHandler(stub)(
+        baseReq('seaweedfs-tls-bootstrap', { nodes: 'node02;rm -rf /' }),
+      ),
+    ).rejects.toThrow(/invalid/);
+  });
+
+  it('generates a CA when none exists, then signs one cert per node, returns fingerprint', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      // `test -r <path>` returns 1 → CA does not exist → generate.
+      if (argv[0] === 'test' && argv[1] === '-r') {
+        return { ...okOutcome(), exitCode: 1 };
+      }
+      // `openssl x509 ... -fingerprint` returns a canonical sha256 line.
+      if (
+        argv[0] === 'openssl' &&
+        argv[1] === 'x509' &&
+        argv.includes('-fingerprint')
+      ) {
+        return {
+          ...okOutcome(),
+          stdoutTail: 'sha256 Fingerprint=AA:BB:CC:DD:EE:FF\n',
+        };
+      }
+      return okOutcome();
+    };
+    const result = await seaweedfsTlsBootstrapHandler(stub)(
+      baseReq('seaweedfs-tls-bootstrap', { nodes: 'node02,node03' }),
     );
     expect(result.exitCode).toBe(0);
-    expect(result.stderrTail).toContain('v1');
-    expect(result.stderrTail).toContain('insecure=true');
+    expect(result.stderrTail).toContain('2 node cert(s)');
+    expect(result.stderrTail).toContain('ca-fingerprint=aabbccddeeff');
+    // Dir setup first (mkdir -p -m 0700 + chmod 0700).
+    expect(calls[0]).toEqual(['mkdir', '-p', '-m', '0700', TLS_BOOTSTRAP_DIR]);
+    expect(calls[1]).toEqual(['chmod', '0700', TLS_BOOTSTRAP_DIR]);
+    // CA generated: key then cert.
+    const caKeyIdx = calls.findIndex(
+      (c) =>
+        c[0] === 'openssl' &&
+        c[1] === 'genpkey' &&
+        c.includes(TLS_CA_KEY_PATH),
+    );
+    const caCrtIdx = calls.findIndex(
+      (c) =>
+        c[0] === 'openssl' &&
+        c[1] === 'req' &&
+        c.includes('-x509') &&
+        c.includes(TLS_CA_CRT_PATH),
+    );
+    expect(caKeyIdx).toBeGreaterThan(-1);
+    expect(caCrtIdx).toBeGreaterThan(caKeyIdx);
+    // Key file is chmod 0600 (never world-readable).
+    const chmodKey = calls.find(
+      (c) => c[0] === 'chmod' && c[1] === '0600' && c[2] === TLS_CA_KEY_PATH,
+    );
+    expect(chmodKey).toBeDefined();
+    // Per-node certs: two of each phase.
+    const nodeKeyGens = calls.filter(
+      (c) =>
+        c[0] === 'openssl' &&
+        c[1] === 'genpkey' &&
+        c.some((a) => /\/(node02|node03)\.key$/.test(a)),
+    );
+    expect(nodeKeyGens).toHaveLength(2);
+    const signs = calls.filter((c) => c[1] === 'x509' && c.includes('-req'));
+    expect(signs).toHaveLength(2);
+    for (const sign of signs) {
+      // Signs with -CA ca.crt -CAkey ca.key, writes .crt under TLS dir.
+      expect(sign).toContain('-CA');
+      expect(sign.indexOf(TLS_CA_CRT_PATH)).toBeGreaterThan(sign.indexOf('-CA'));
+      expect(sign).toContain('-CAkey');
+      expect(sign.indexOf(TLS_CA_KEY_PATH)).toBeGreaterThan(sign.indexOf('-CAkey'));
+    }
+  });
+
+  it('reuses an existing CA without regenerating it (idempotent)', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      // CA already readable.
+      if (argv[0] === 'test' && argv[1] === '-r') return okOutcome();
+      if (
+        argv[0] === 'openssl' &&
+        argv[1] === 'x509' &&
+        argv.includes('-fingerprint')
+      ) {
+        return {
+          ...okOutcome(),
+          stdoutTail: 'sha256 Fingerprint=11:22:33\n',
+        };
+      }
+      return okOutcome();
+    };
+    const result = await seaweedfsTlsBootstrapHandler(stub)(
+      baseReq('seaweedfs-tls-bootstrap', { nodes: 'node02' }),
+    );
+    expect(result.exitCode).toBe(0);
+    // No `openssl req -x509 -new ...` call for CA.
+    const caRegens = calls.filter(
+      (c) =>
+        c[0] === 'openssl' &&
+        c[1] === 'req' &&
+        c.includes('-x509') &&
+        c.includes(TLS_CA_CRT_PATH),
+    );
+    expect(caRegens).toHaveLength(0);
+    // But node certs still generated.
+    const signs = calls.filter((c) => c[1] === 'x509' && c.includes('-req'));
+    expect(signs).toHaveLength(1);
+  });
+
+  it('short-circuits with the openssl failure when CA generation fails', async () => {
+    const stub: Exec = async (argv) => {
+      if (argv[0] === 'test') return { ...okOutcome(), exitCode: 1 };
+      // First openssl call (genpkey for CA) fails.
+      if (argv[0] === 'openssl' && argv[1] === 'genpkey') {
+        return { ...okOutcome(), exitCode: 1, stderrTail: 'bad entropy' };
+      }
+      return okOutcome();
+    };
+    const result = await seaweedfsTlsBootstrapHandler(stub)(
+      baseReq('seaweedfs-tls-bootstrap', { nodes: 'node02' }),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderrTail).toContain('bad entropy');
+  });
+
+  it('dedupes repeated node names', async () => {
+    expect(parseNodeList('node02,node02,node03')).toEqual(['node02', 'node03']);
+  });
+
+  it('rejects an empty node list', async () => {
+    const stub: Exec = async () => okOutcome();
+    await expect(
+      seaweedfsTlsBootstrapHandler(stub)(
+        baseReq('seaweedfs-tls-bootstrap', { nodes: ',,,' }),
+      ),
+    ).rejects.toThrow(/invalid/);
   });
 });
 
@@ -1077,12 +1218,14 @@ describe('realHandlerMap()', () => {
     await map['mkdir-swarmui-shared-root']!(baseReq('mkdir-swarmui-shared-root'));
     await map['apt-install-fuse3']!(baseReq('apt-install-fuse3'));
     expect(argvCapture.length).toBeGreaterThan(0);
-    // After Sprint 6 every whitelisted commandId has a real handler; the
-    // only one that must not exec is the TLS bootstrap, which is a
-    // documented v1 no-op (dedicated handler, not NOOP_HANDLER).
+    // After Sprint 7 every whitelisted commandId has a real handler and
+    // every one exec's at least once (TLS bootstrap used to be the lone
+    // NOOP; it now spawns openssl). Sanity-check: a trivial commandId
+    // flows through exec at least once with a known argv prefix.
     argvCapture.length = 0;
-    await map['seaweedfs-tls-bootstrap']!(baseReq('seaweedfs-tls-bootstrap'));
-    expect(argvCapture).toHaveLength(0);
+    await map['apt-install-fuse3']!(baseReq('apt-install-fuse3'));
+    expect(argvCapture.length).toBeGreaterThan(0);
+    expect(argvCapture[0][0]).toBe('apt-get');
   });
 });
 

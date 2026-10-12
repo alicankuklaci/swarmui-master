@@ -11,8 +11,8 @@ import {
 import {
   installSeaweedfsMountSystemdUnitHandler,
   systemctlEnableHandler,
-  tlsBootstrapNoopHandler,
 } from './systemd';
+import { seaweedfsTlsBootstrapHandler } from './tls';
 import { firewallAllowPortsHandler } from './firewall';
 import { seaweedfsHealthcheckHandler } from './healthcheck';
 import {
@@ -63,9 +63,10 @@ export function realHandlerMap(exec: Exec = defaultExec): HandlerMap {
     exec,
   );
   map['firewall-allow-seaweedfs-ports'] = firewallAllowPortsHandler(exec);
-  // TLS bootstrap: v1 insecure=true only. The handler is a documented no-op
-  // until Sprint 7 wires a real cluster-CA — see tlsBootstrapNoopHandler.
-  map['seaweedfs-tls-bootstrap'] = tlsBootstrapNoopHandler(exec);
+  // Sprint 7: real TLS bootstrap on master. Generates CA + per-node
+  // signed certs under /etc/swarmui/tls/. Per-node distribution + docker-run
+  // flag wiring are Sprint 8 follow-ups.
+  map['seaweedfs-tls-bootstrap'] = seaweedfsTlsBootstrapHandler(exec);
   // D5 implemented
   map['seaweedfs-cluster-healthcheck'] = seaweedfsHealthcheckHandler(exec);
   // Sprint 6: NFS handlers. The NfsDriver plan now references these, so the
