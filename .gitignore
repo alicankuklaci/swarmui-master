@@ -30,3 +30,4 @@ ai-*
 .env.prod
 TASK.md
 *.md.bak
+rotate-secrets.sh
