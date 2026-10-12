@@ -1,8 +1,13 @@
 import {
   aptInstallHandler,
   defaultExec,
+  dockerPullHandler,
+  dockerRunFilerHandler,
+  dockerRunMasterHandler,
+  dockerRunVolumeHandler,
   mkdirSharedRootHandler,
   realHandlerMap,
+  SEAWEEDFS_CONTAINER_NAMES,
   testMountWriteHandler,
   type Exec,
   type ExecOutcome,
@@ -264,6 +269,180 @@ describe('aptInstallHandler', () => {
   });
 });
 
+describe('dockerPullHandler', () => {
+  it('rejects an image name that contains anything but [a-z0-9._-/:@]', async () => {
+    const stub: Exec = async () => okOutcome();
+    await expect(
+      dockerPullHandler(stub)(
+        baseReq('docker-pull-seaweedfs', { image: 'bad name; rm -rf /' }),
+      ),
+    ).rejects.toThrow(/invalid image/);
+  });
+
+  it('runs docker pull <image> on a valid image', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return okOutcome();
+    };
+    const result = await dockerPullHandler(stub)(
+      baseReq('docker-pull-seaweedfs', { image: 'chrislusf/seaweedfs:3.80' }),
+    );
+    expect(calls).toEqual([['docker', 'pull', 'chrislusf/seaweedfs:3.80']]);
+    expect(result.exitCode).toBe(0);
+  });
+});
+
+describe('dockerRunMasterHandler', () => {
+  it('inspects first; when container is already running, skips docker run (idempotent)', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[0] === 'docker' && argv[1] === 'inspect') {
+        return { ...okOutcome(), stdoutTail: 'running\n' };
+      }
+      return okOutcome();
+    };
+    const result = await dockerRunMasterHandler(stub)(
+      baseReq('docker-run-seaweedfs-master', { image: 'chrislusf/seaweedfs:3.80' }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderrTail).toContain('idempotent-skip');
+    // Only the inspect call — no run, no mkdir.
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toBe('inspect');
+  });
+
+  it('rm -fs a stopped container, mkdirs the data dir, then runs the master with host network and plan args', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[0] === 'docker' && argv[1] === 'inspect') {
+        return { ...okOutcome(), stdoutTail: 'exited\n' };
+      }
+      return okOutcome();
+    };
+    const result = await dockerRunMasterHandler(stub)(
+      baseReq('docker-run-seaweedfs-master', {
+        image: 'chrislusf/seaweedfs:3.80',
+        port: 9333,
+        defaultReplication: '010',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    const verbs = calls.map((c) => `${c[0]} ${c[1]}`);
+    expect(verbs).toEqual(['docker inspect', 'docker rm', 'mkdir -p', 'docker run']);
+    const run = calls[3];
+    // Deterministic container name + host network + bind mount.
+    expect(run).toContain('--name');
+    expect(run).toContain(SEAWEEDFS_CONTAINER_NAMES.master);
+    expect(run).toContain('--network');
+    expect(run.indexOf('host')).toBeGreaterThan(run.indexOf('--network'));
+    // Plan args surface as weed master flags.
+    expect(run).toContain('-port=9333');
+    expect(run).toContain('-defaultReplication=010');
+    // Mount dir composed under the agent's data root.
+    const vIdx = run.indexOf('-v');
+    expect(run[vIdx + 1]).toMatch(/\/var\/lib\/swarmui\/data\/master:\/data$/);
+    // Restart policy on, detached.
+    expect(run).toContain('--restart');
+    expect(run).toContain('unless-stopped');
+    expect(run).toContain('-d');
+  });
+
+  it('on action=stop, calls docker rm -f against the master container and does not run', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return okOutcome();
+    };
+    const result = await dockerRunMasterHandler(stub)(
+      baseReq('docker-run-seaweedfs-master', { action: 'stop' }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(calls).toEqual([
+      ['docker', 'rm', '-f', SEAWEEDFS_CONTAINER_NAMES.master],
+    ]);
+  });
+
+  it('rejects an invalid port with no docker call attempted', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      dockerRunMasterHandler(stub)(
+        baseReq('docker-run-seaweedfs-master', {
+          image: 'chrislusf/seaweedfs:3.80',
+          port: 'not-a-port',
+        }),
+      ),
+    ).rejects.toThrow(/invalid port/);
+  });
+});
+
+describe('dockerRunVolumeHandler', () => {
+  it('passes master url, dataCenter and rack through to weed volume argv', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[1] === 'inspect') return { ...okOutcome(), exitCode: 1 }; // absent
+      return okOutcome();
+    };
+    await dockerRunVolumeHandler(stub)(
+      baseReq('docker-run-seaweedfs-volume', {
+        image: 'chrislusf/seaweedfs:3.80',
+        port: 8080,
+        master: 'node02:9333',
+        dataCenter: 'swarm',
+        rack: 'node02',
+      }),
+    );
+    const run = calls.find((c) => c[1] === 'run')!;
+    expect(run).toContain('-mserver=node02:9333');
+    expect(run).toContain('-dataCenter=swarm');
+    expect(run).toContain('-rack=node02');
+    expect(run).toContain('-port=8080');
+    expect(run).toContain(SEAWEEDFS_CONTAINER_NAMES.volume);
+  });
+
+  it('rejects an injection-shaped master url', async () => {
+    const stub: Exec = async () => okOutcome();
+    await expect(
+      dockerRunVolumeHandler(stub)(
+        baseReq('docker-run-seaweedfs-volume', {
+          image: 'chrislusf/seaweedfs:3.80',
+          master: '$(rm -rf /):9333',
+          rack: 'node02',
+        }),
+      ),
+    ).rejects.toThrow(/invalid master/);
+  });
+});
+
+describe('dockerRunFilerHandler', () => {
+  it('runs weed filer with master, http port, and grpc port', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv[1] === 'inspect') return { ...okOutcome(), exitCode: 1 }; // absent
+      return okOutcome();
+    };
+    await dockerRunFilerHandler(stub)(
+      baseReq('docker-run-seaweedfs-filer', {
+        image: 'chrislusf/seaweedfs:3.80',
+        port: 8888,
+        grpcPort: 18888,
+        master: 'node02:9333',
+      }),
+    );
+    const run = calls.find((c) => c[1] === 'run')!;
+    expect(run).toContain('-master=node02:9333');
+    expect(run).toContain('-port=8888');
+    expect(run).toContain('-port.grpc=18888');
+    expect(run).toContain(SEAWEEDFS_CONTAINER_NAMES.filer);
+  });
+});
+
 describe('realHandlerMap()', () => {
   it('registers a handler for every whitelisted commandId', () => {
     const map = realHandlerMap(async () => okOutcome());
@@ -285,9 +464,12 @@ describe('realHandlerMap()', () => {
     expect(argvCapture.length).toBeGreaterThan(0);
     // Not yet implemented: NOOP never calls exec.
     argvCapture.length = 0;
-    await map['docker-pull-seaweedfs']!(baseReq('docker-pull-seaweedfs'));
     await map['firewall-allow-seaweedfs-ports']!(
       baseReq('firewall-allow-seaweedfs-ports'),
+    );
+    await map['seaweedfs-tls-bootstrap']!(baseReq('seaweedfs-tls-bootstrap'));
+    await map['install-seaweedfs-mount-systemd-unit']!(
+      baseReq('install-seaweedfs-mount-systemd-unit'),
     );
     expect(argvCapture).toHaveLength(0);
   });

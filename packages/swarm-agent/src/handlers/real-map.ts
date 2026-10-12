@@ -2,6 +2,12 @@ import { NODE_EXEC_COMMANDS } from '@swarmui-master/storage-plan';
 import { NOOP_HANDLER } from '../dispatcher';
 import { mkdirSharedRootHandler, testMountWriteHandler } from './fs';
 import { aptInstallHandler } from './apt';
+import {
+  dockerPullHandler,
+  dockerRunFilerHandler,
+  dockerRunMasterHandler,
+  dockerRunVolumeHandler,
+} from './docker';
 import { defaultExec, type Exec } from './exec';
 import type { HandlerMap } from './types';
 
@@ -26,6 +32,11 @@ export function realHandlerMap(exec: Exec = defaultExec): HandlerMap {
   map['apt-install-fuse3'] = aptInstallHandler('fuse3', exec);
   map['apt-install-nfs-common'] = aptInstallHandler('nfs-common', exec);
   map['apt-install-nfs-kernel-server'] = aptInstallHandler('nfs-kernel-server', exec);
-  // D2+: docker, systemd, firewall, nfs-export, mount-nfs, fstab, healthcheck, tls
+  // D2 implemented
+  map['docker-pull-seaweedfs'] = dockerPullHandler(exec);
+  map['docker-run-seaweedfs-master'] = dockerRunMasterHandler(exec);
+  map['docker-run-seaweedfs-volume'] = dockerRunVolumeHandler(exec);
+  map['docker-run-seaweedfs-filer'] = dockerRunFilerHandler(exec);
+  // D3+: systemd, firewall, nfs-export, mount-nfs, fstab, healthcheck, tls
   return map;
 }
