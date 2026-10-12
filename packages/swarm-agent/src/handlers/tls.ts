@@ -280,11 +280,6 @@ export function seaweedfsTlsBootstrapHandler(
   };
 }
 
-// Alias kept for drivers / audit entries that reference the old symbol.
-// Both names resolve to the same real handler now — the Sprint 3-era
-// no-op is gone. Scheduled for removal in Sprint 8 once drivers rename.
-export const tlsBootstrapNoopHandler = seaweedfsTlsBootstrapHandler;
-
 export const TLS_BOOTSTRAP_DIR = TLS_DIR;
 export const TLS_CA_CRT_PATH = CA_CRT;
 export const TLS_CA_KEY_PATH = CA_KEY;

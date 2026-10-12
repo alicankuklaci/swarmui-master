@@ -50,6 +50,23 @@ export class NodeExecClient {
     this.insecure =
       (this.config.get<string>('AGENT_WS_INSECURE', 'false') || 'false')
         .toLowerCase() === 'true';
+    // Sprint-8 security hardening: refuse to boot with AGENT_WS_INSECURE=true
+    // in production unless the operator also sets AGENT_WS_INSECURE_IN_PROD=true
+    // as an explicit acknowledgement. An ops rollout that forgot to turn
+    // insecure off in prod would otherwise ship over plaintext ws:// with no
+    // signal to the operator.
+    const nodeEnv = (this.config.get<string>('NODE_ENV', '') || '').toLowerCase();
+    if (this.insecure && nodeEnv === 'production') {
+      const ack = (this.config.get<string>('AGENT_WS_INSECURE_IN_PROD', '') || '').toLowerCase();
+      if (ack !== 'true' && ack !== '1') {
+        throw new Error(
+          'AGENT_WS_INSECURE=true in production is refused. Set AGENT_WS_INSECURE_IN_PROD=true to acknowledge, or switch to wss:// (recommended).',
+        );
+      }
+      this.logger.warn(
+        'AGENT_WS_INSECURE acknowledged in production (AGENT_WS_INSECURE_IN_PROD=true). All node-exec calls will travel over plaintext ws://.',
+      );
+    }
   }
 
   // Builds a signed request. Pure, no I/O.

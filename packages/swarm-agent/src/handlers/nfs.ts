@@ -18,7 +18,25 @@ import type { CommandHandler } from './types';
 // line we did not write ourselves, which keeps a hand-maintained
 // /etc/exports or /etc/fstab safe from the agent's teardown pass.
 
+// Must be an absolute, canonical POSIX path. The regex allows letters,
+// digits, and `._-/`, but we additionally forbid any `..` segment so a
+// crafted request can't climb out of /var/lib/swarmui into /etc or the
+// shared root's parent. (`.` alone — "current dir" — would be benign but
+// is likewise rejected for simplicity.)
 const PATH_RE = /^\/[A-Za-z0-9._\-/]{1,255}$/;
+function assertPath(value: unknown, field: string): string {
+  const s = assertStringMatch(value, PATH_RE, field);
+  // Reject `..` as a path segment (`/foo/../etc`) and leading `../` after
+  // normalization. The regex-only check lets `foo..bar` through, which is
+  // a legitimate filename, so we scan segments explicitly.
+  const segments = s.split('/').filter((seg) => seg.length > 0);
+  for (const seg of segments) {
+    if (seg === '..' || seg === '.') {
+      throw new Error(`nfs handler: path traversal segment in ${field}: ${JSON.stringify(s)}`);
+    }
+  }
+  return s;
+}
 const HOST_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$/;
 // NFS clients: wildcard, hostname, CIDR, or an `@netgroup`. The surface is
 // deliberately narrow — exotic configurations get a code review, not a
@@ -119,7 +137,7 @@ async function deleteTaggedLines(
 
 export function nfsExportAddHandler(exec: Exec = defaultExec): CommandHandler {
   return async (req) => {
-    const exportPath = assertStringMatch(req.args.exportPath, PATH_RE, 'exportPath');
+    const exportPath = assertPath(req.args.exportPath, 'exportPath');
     const clients = assertStringMatch(req.args.clients, CLIENT_RE, 'clients');
     const opts =
       typeof req.args.options === 'string'
@@ -156,7 +174,7 @@ export function mountNfsHandler(exec: Exec = defaultExec): CommandHandler {
     // (`-f`/`-l` lazy) in v1 — a stuck umount is a signal, not something to
     // paper over. Operator fixes the host, retries.
     if (req.args.action === 'umount') {
-      const local = assertStringMatch(req.args.local, PATH_RE, 'local');
+      const local = assertPath(req.args.local, 'local');
       // Already not a mount point? Treat as success — same shape as the
       // mount idempotency check.
       const mounted = await exec(['mountpoint', '-q', local], {
@@ -172,8 +190,8 @@ export function mountNfsHandler(exec: Exec = defaultExec): CommandHandler {
     }
 
     const server = assertStringMatch(req.args.server, HOST_RE, 'server');
-    const remote = assertStringMatch(req.args.remote, PATH_RE, 'remote');
-    const local = assertStringMatch(req.args.local, PATH_RE, 'local');
+    const remote = assertPath(req.args.remote, 'remote');
+    const local = assertPath(req.args.local, 'local');
     const opts =
       typeof req.args.options === 'string'
         ? assertStringMatch(req.args.options, OPTS_RE, 'options')
@@ -206,8 +224,8 @@ export function mountNfsHandler(exec: Exec = defaultExec): CommandHandler {
 export function fstabAddHandler(exec: Exec = defaultExec): CommandHandler {
   return async (req) => {
     const server = assertStringMatch(req.args.server, HOST_RE, 'server');
-    const remote = assertStringMatch(req.args.remote, PATH_RE, 'remote');
-    const local = assertStringMatch(req.args.local, PATH_RE, 'local');
+    const remote = assertPath(req.args.remote, 'remote');
+    const local = assertPath(req.args.local, 'local');
     const opts =
       typeof req.args.options === 'string'
         ? assertStringMatch(req.args.options, OPTS_RE, 'options')

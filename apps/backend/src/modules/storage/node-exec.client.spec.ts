@@ -69,6 +69,37 @@ describe('NodeExecClient', () => {
       expect(req.signature.hmac).toBe(expected);
     });
 
+    it('Sprint 8-security: refuses to construct with AGENT_WS_INSECURE=true + NODE_ENV=production without explicit ack', () => {
+      // An ops rollout that forgot to flip insecure off would otherwise ship
+      // over plaintext ws://. The ack env var forces the operator to look at
+      // the risk; without it, the module refuses to boot.
+      expect(() =>
+        makeClient(SECRET_32, {
+          AGENT_WS_INSECURE: 'true',
+          NODE_ENV: 'production',
+        }),
+      ).toThrow(/refused/);
+    });
+
+    it('Sprint 8-security: boots with AGENT_WS_INSECURE=true + NODE_ENV=production when AGENT_WS_INSECURE_IN_PROD=true', () => {
+      expect(() =>
+        makeClient(SECRET_32, {
+          AGENT_WS_INSECURE: 'true',
+          NODE_ENV: 'production',
+          AGENT_WS_INSECURE_IN_PROD: 'true',
+        }),
+      ).not.toThrow();
+    });
+
+    it('Sprint 8-security: allows AGENT_WS_INSECURE=true in non-production (dev/test)', () => {
+      expect(() =>
+        makeClient(SECRET_32, {
+          AGENT_WS_INSECURE: 'true',
+          NODE_ENV: 'development',
+        }),
+      ).not.toThrow();
+    });
+
     it('agent-side verifyNodeExecRequest accepts a freshly-built request', () => {
       const client = makeClient(SECRET_32);
       const req = client.buildRequest(base);

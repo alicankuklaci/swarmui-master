@@ -40,6 +40,19 @@ function assertStringMatch(value: unknown, re: RegExp, field: string): string {
   return value;
 }
 
+// Same hardening as the NFS handler: PATH_RE accepts `..` as substring (so
+// `foo..bar` is a valid filename), but a `..` segment is a traversal attempt.
+function assertPath(value: unknown, field: string): string {
+  const s = assertStringMatch(value, PATH_RE, field);
+  const segments = s.split('/').filter((seg) => seg.length > 0);
+  for (const seg of segments) {
+    if (seg === '..' || seg === '.') {
+      throw new Error(`systemd handler: path traversal segment in ${field}: ${JSON.stringify(s)}`);
+    }
+  }
+  return s;
+}
+
 // --- commandId: install-seaweedfs-mount-systemd-unit ------------------
 
 // weed mount wraps the filer with FUSE. The unit intentionally runs
@@ -85,11 +98,7 @@ export function installSeaweedfsMountSystemdUnitHandler(
 ): CommandHandler {
   return async (req) => {
     const filer = assertStringMatch(req.args.filer, FILER_URL_RE, 'filer');
-    const mountPoint = assertStringMatch(
-      req.args.mountPoint,
-      PATH_RE,
-      'mountPoint',
-    );
+    const mountPoint = assertPath(req.args.mountPoint, 'mountPoint');
     const collection = assertStringMatch(
       req.args.collection,
       COLLECTION_RE,
