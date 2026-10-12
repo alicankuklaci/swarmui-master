@@ -1,30 +1,347 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import type {
   InstallPlan,
+  InstallPlanStep,
+  NodeExecCommandId,
   SharedStorageConfig,
   StorageBackend,
 } from '@swarmui-master/storage-plan';
 import { IStorageDriver } from '../driver.interface';
 
-// Stub — real plan generation lands in Sprint 3. The shape is here only to let
-// storage-core compile against a concrete driver and to let the dispatcher
-// find a provider for backend=seaweedfs.
+// SeaweedFS driver — Sprint 2.
+//
+// Topology (v1, simplest shape that still gives redundancy):
+//   - master  = nodes[0]              (coordinator; single master for v1,
+//                                      HA-master is a Sprint 7 follow-up)
+//   - filer   = nodes[0]              (metadata; co-located with master)
+//   - volumes = nodes[0..n-1]         (data; every node gets a volume server)
+//   - mounts  = nodes[0..n-1]         (every node exposes /var/lib/swarmui/shared
+//                                      so stacks can bind-mount regardless of
+//                                      which node schedules the task)
+//
+// Steps are *data*, not shell. Each step maps 1:1 to a NodeExecCommandId in the
+// agent whitelist (packages/storage-plan/command.types.ts). The agent re-reads
+// the whitelist from that package, so adding a new commandId here without a
+// matching agent handler is a validation error at install time — never a shell
+// surprise on the node.
+//
+// Step id convention:
+//   s{NN}-{short-verb}-{nodeId}
+// NN keeps steps in order when a UI sorts lexicographically; the (verb, nodeId)
+// tail makes the id unique and lets the operator find a specific failed step
+// in the audit log without scanning descriptions.
+
+const SW_MASTER_PORT = 9333;
+const SW_VOLUME_PORT = 8080;
+const SW_FILER_PORT = 8888;
+const SW_FILER_GRPC_PORT = 18888;
+const DEFAULT_REPLICATION = '010';
+const V1_MOUNT_POINT = '/var/lib/swarmui/shared';
+const SW_IMAGE = 'chrislusf/seaweedfs:3.80';
+
 @Injectable()
 export class SeaweedfsDriver implements IStorageDriver {
   readonly backend: StorageBackend = 'seaweedfs';
 
-  plan(_config: SharedStorageConfig, _sessionId: string): InstallPlan {
-    throw new Error('SeaweedfsDriver.plan not implemented (Sprint 3)');
+  plan(config: SharedStorageConfig, sessionId: string): InstallPlan {
+    this.validate(config);
+    const nodes = config.nodes;
+    const master = nodes[0];
+    const replication = config.replication ?? DEFAULT_REPLICATION;
+    const mountPoint = config.mountPoint ?? V1_MOUNT_POINT;
+    const insecure = config.insecure === true;
+
+    const steps: InstallPlanStep[] = [];
+    let n = 0;
+    const next = (): string => String(++n).padStart(2, '0');
+
+    // 1. TLS bootstrap (once, on master). Skipped only when the operator
+    //    explicitly opts out — a trusted-network/dev shortcut.
+    if (!insecure) {
+      steps.push({
+        id: `s${next()}-tls-bootstrap-${master}`,
+        description: 'Generate SeaweedFS cluster CA and distribute node certs',
+        nodeId: master,
+        commandId: 'seaweedfs-tls-bootstrap' satisfies NodeExecCommandId,
+        args: {
+          commonName: 'swarmui-seaweedfs',
+          nodes: nodes.join(','),
+        },
+      });
+    }
+
+    // 2. Per-node bootstrap: mkdir mount root, install fuse3 (needed for
+    //    `weed mount`), pull the image. Order matters only within a node;
+    //    different nodes are independent and could run in parallel in a
+    //    future orchestrator — for v1 we serialize for easier audit.
+    for (const node of nodes) {
+      steps.push({
+        id: `s${next()}-mkdir-root-${node}`,
+        description: `Create ${mountPoint} on ${node}`,
+        nodeId: node,
+        commandId: 'mkdir-swarmui-shared-root' satisfies NodeExecCommandId,
+        args: { path: mountPoint, mode: '0750' },
+      });
+      steps.push({
+        id: `s${next()}-apt-fuse3-${node}`,
+        description: `apt install fuse3 on ${node}`,
+        nodeId: node,
+        commandId: 'apt-install-fuse3' satisfies NodeExecCommandId,
+        args: {},
+      });
+      steps.push({
+        id: `s${next()}-pull-image-${node}`,
+        description: `docker pull ${SW_IMAGE} on ${node}`,
+        nodeId: node,
+        commandId: 'docker-pull-seaweedfs' satisfies NodeExecCommandId,
+        args: { image: SW_IMAGE },
+      });
+    }
+
+    // 3. Master (nodes[0]).
+    steps.push({
+      id: `s${next()}-run-master-${master}`,
+      description: `docker run seaweedfs master on ${master}:${SW_MASTER_PORT}`,
+      nodeId: master,
+      commandId: 'docker-run-seaweedfs-master' satisfies NodeExecCommandId,
+      args: {
+        image: SW_IMAGE,
+        port: SW_MASTER_PORT,
+        defaultReplication: replication,
+        tls: !insecure,
+      },
+    });
+
+    // 4. Volume server on every node, pointing at the master.
+    for (const node of nodes) {
+      steps.push({
+        id: `s${next()}-run-volume-${node}`,
+        description: `docker run seaweedfs volume on ${node}:${SW_VOLUME_PORT}`,
+        nodeId: node,
+        commandId: 'docker-run-seaweedfs-volume' satisfies NodeExecCommandId,
+        args: {
+          image: SW_IMAGE,
+          port: SW_VOLUME_PORT,
+          master: `${master}:${SW_MASTER_PORT}`,
+          dataCenter: 'swarm',
+          rack: node, // one rack per node → replication=010 means "another node"
+          tls: !insecure,
+        },
+      });
+    }
+
+    // 5. Filer (nodes[0]).
+    steps.push({
+      id: `s${next()}-run-filer-${master}`,
+      description: `docker run seaweedfs filer on ${master}:${SW_FILER_PORT}`,
+      nodeId: master,
+      commandId: 'docker-run-seaweedfs-filer' satisfies NodeExecCommandId,
+      args: {
+        image: SW_IMAGE,
+        port: SW_FILER_PORT,
+        grpcPort: SW_FILER_GRPC_PORT,
+        master: `${master}:${SW_MASTER_PORT}`,
+        tls: !insecure,
+      },
+    });
+
+    // 6. Firewall opens — overlay network only, never 0.0.0.0.
+    for (const node of nodes) {
+      steps.push({
+        id: `s${next()}-firewall-${node}`,
+        description: `Open SeaweedFS ports on ${node} (overlay-net scope)`,
+        nodeId: node,
+        commandId: 'firewall-allow-seaweedfs-ports' satisfies NodeExecCommandId,
+        args: {
+          ports: `${SW_MASTER_PORT},${SW_VOLUME_PORT},${SW_FILER_PORT},${SW_FILER_GRPC_PORT}`,
+          scope: 'overlay',
+        },
+      });
+    }
+
+    // 7. Per-node mount unit + enable. systemd unit depends on the filer; it
+    //    will come up as soon as the filer answers.
+    for (const node of nodes) {
+      steps.push({
+        id: `s${next()}-mount-unit-${node}`,
+        description: `Install systemd unit for weed mount on ${node}`,
+        nodeId: node,
+        commandId: 'install-seaweedfs-mount-systemd-unit' satisfies NodeExecCommandId,
+        args: {
+          filer: `${master}:${SW_FILER_PORT}`,
+          mountPoint,
+          collection: 'swarmui',
+          tls: !insecure,
+        },
+      });
+      steps.push({
+        id: `s${next()}-enable-mount-${node}`,
+        description: `systemctl enable --now seaweedfs-mount on ${node}`,
+        nodeId: node,
+        commandId: 'systemctl-enable-seaweedfs-mount' satisfies NodeExecCommandId,
+        args: {},
+      });
+    }
+
+    // 8. Cluster-level sanity: master+filer+all volumes alive and known to the
+    //    cluster. Fatal if red — we won't flip to HEALTHY while anything is
+    //    missing because stacks would bind-mount a half-cluster.
+    steps.push({
+      id: `s${next()}-cluster-healthcheck-${master}`,
+      description: 'Verify SeaweedFS cluster is healthy end-to-end',
+      nodeId: master,
+      commandId: 'seaweedfs-cluster-healthcheck' satisfies NodeExecCommandId,
+      args: {
+        master: `${master}:${SW_MASTER_PORT}`,
+        filer: `${master}:${SW_FILER_PORT}`,
+        expectedVolumeServers: nodes.length,
+      },
+    });
+
+    // 9. Canary write — proves the mount actually accepts writes end-to-end
+    //    on the master's local mount. If this fails after the healthcheck
+    //    passes, the mount client is the problem (fuse3, perms), not the
+    //    cluster.
+    steps.push({
+      id: `s${next()}-test-write-${master}`,
+      description: `Canary write to ${mountPoint} on ${master}`,
+      nodeId: master,
+      commandId: 'test-mount-write' satisfies NodeExecCommandId,
+      args: { path: mountPoint },
+    });
+
+    return {
+      backend: this.backend,
+      sessionId,
+      steps,
+      mountPoint,
+      driverOpts: {
+        replication,
+        master: `${master}:${SW_MASTER_PORT}`,
+        filer: `${master}:${SW_FILER_PORT}`,
+        image: SW_IMAGE,
+        insecure,
+      },
+    };
   }
 
-  uninstallPlan(_config: SharedStorageConfig, _sessionId: string): InstallPlan {
-    throw new Error('SeaweedfsDriver.uninstallPlan not implemented (Sprint 4)');
+  uninstallPlan(config: SharedStorageConfig, sessionId: string): InstallPlan {
+    this.validate(config);
+    const nodes = config.nodes;
+    const master = nodes[0];
+    const mountPoint = config.mountPoint ?? V1_MOUNT_POINT;
+
+    const steps: InstallPlanStep[] = [];
+    let n = 0;
+    const next = (): string => String(++n).padStart(2, '0');
+
+    // Uninstall is the reverse walk, roughly. v2 ships the full teardown
+    // (stop containers, remove systemd units, revoke firewall rules). Sprint 4
+    // owns the destructive teardown; for Sprint 2 we only need the shape so
+    // enumerateConsumers can refuse the delete when the plan would be destructive.
+    // Order: unmount → stop containers → remove systemd unit → revoke firewall.
+
+    // Reverse of the install mount steps.
+    for (const node of [...nodes].reverse()) {
+      // The agent handler disables the systemd unit, stops the mount, and
+      // umounts the fuse mount at /var/lib/swarmui/shared.
+      steps.push({
+        id: `s${next()}-stop-mount-${node}`,
+        description: `systemctl disable --now seaweedfs-mount on ${node}`,
+        nodeId: node,
+        commandId: 'systemctl-enable-seaweedfs-mount' satisfies NodeExecCommandId,
+        args: { action: 'disable' },
+        terminalOnFail: true,
+      });
+    }
+
+    // Stop volume servers.
+    for (const node of [...nodes].reverse()) {
+      steps.push({
+        id: `s${next()}-stop-volume-${node}`,
+        description: `Stop seaweedfs volume container on ${node}`,
+        nodeId: node,
+        commandId: 'docker-run-seaweedfs-volume' satisfies NodeExecCommandId,
+        args: { action: 'stop' },
+        terminalOnFail: true,
+      });
+    }
+
+    // Stop filer + master.
+    steps.push({
+      id: `s${next()}-stop-filer-${master}`,
+      description: `Stop seaweedfs filer container on ${master}`,
+      nodeId: master,
+      commandId: 'docker-run-seaweedfs-filer' satisfies NodeExecCommandId,
+      args: { action: 'stop' },
+      terminalOnFail: true,
+    });
+    steps.push({
+      id: `s${next()}-stop-master-${master}`,
+      description: `Stop seaweedfs master container on ${master}`,
+      nodeId: master,
+      commandId: 'docker-run-seaweedfs-master' satisfies NodeExecCommandId,
+      args: { action: 'stop' },
+      terminalOnFail: true,
+    });
+
+    // Revoke firewall rules.
+    for (const node of [...nodes].reverse()) {
+      steps.push({
+        id: `s${next()}-firewall-close-${node}`,
+        description: `Revoke SeaweedFS firewall rules on ${node}`,
+        nodeId: node,
+        commandId: 'firewall-allow-seaweedfs-ports' satisfies NodeExecCommandId,
+        args: {
+          ports: `${SW_MASTER_PORT},${SW_VOLUME_PORT},${SW_FILER_PORT},${SW_FILER_GRPC_PORT}`,
+          action: 'revoke',
+        },
+        terminalOnFail: true,
+      });
+    }
+
+    return {
+      backend: this.backend,
+      sessionId,
+      steps,
+      mountPoint,
+      driverOpts: { intent: 'uninstall' },
+    };
   }
 
   async enumerateConsumers(_mountPoint: string): Promise<string[]> {
-    // Returning an empty list is safe for the Sprint 1 skeleton — Sprint 4
-    // wires this up against the stacks/services inspector and refuses
-    // uninstall when consumers exist.
+    // Sprint 4 wires this against the stacks/services inspector: enumerate
+    // every service whose spec bind-mounts `mountPoint` and return their names.
+    // Returning [] here means Sprint 2 integration tests can still exercise
+    // the install path end-to-end without a stack inspector mock.
     return [];
+  }
+
+  private validate(config: SharedStorageConfig): void {
+    if (!Array.isArray(config.nodes) || config.nodes.length === 0) {
+      throw new BadRequestException('seaweedfs plan requires at least one node');
+    }
+    if (new Set(config.nodes).size !== config.nodes.length) {
+      throw new BadRequestException('seaweedfs plan: duplicate node ids');
+    }
+    if (
+      config.replication !== undefined &&
+      !/^[0-9]{3}$/.test(config.replication)
+    ) {
+      throw new BadRequestException(
+        `seaweedfs plan: replication must be a 3-digit string, got "${config.replication}"`,
+      );
+    }
+    const r = config.replication ?? DEFAULT_REPLICATION;
+    // Volume count required by replication = sum(digits) + 1. We only need
+    // enough volume servers for the chosen replication; otherwise cluster
+    // health will never go green and we'd time out at the healthcheck step.
+    const requiredVolumes =
+      r.split('').reduce((acc, c) => acc + Number(c), 0) + 1;
+    if (config.nodes.length < requiredVolumes) {
+      throw new BadRequestException(
+        `seaweedfs plan: replication=${r} needs ≥ ${requiredVolumes} nodes; have ${config.nodes.length}`,
+      );
+    }
   }
 }
