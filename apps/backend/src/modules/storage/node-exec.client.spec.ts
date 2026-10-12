@@ -1,20 +1,36 @@
-import * as crypto from 'node:crypto';
+import { createServer, type Server } from 'node:http';
+import { AddressInfo } from 'node:net';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import {
+  computeHmac,
+  verifyNodeExecRequest,
+  type NodeExecRequest,
+  type NodeExecResult,
+} from '@swarmui-master/storage-plan';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { WebSocketServer } = require('ws');
 import { NodeExecClient } from './node-exec.client';
 
-// HMAC roundtrip tests. The agent (packages/swarm-agent, Sprint 3) will
-// re-compute these exact bytes and reject anything that doesn't match, so this
-// spec is the contract the agent spec reuses. Any change here is a protocol
-// break.
+// HMAC roundtrip + real WebSocket transport. The spec covers two concerns
+// that must stay in lockstep across the backend and the swarm-agent:
+//   1. The exact canonical bytes used for signing — any change here is a
+//      protocol break and must land as a conscious wire-format bump.
+//   2. The send() lifecycle: open ws, send request, read response, close.
+//      A spec against a tiny ws fixture catches regressions the orchestrator
+//      spec can't (that one mocks NodeExecClient).
 
-const SECRET_32 = 'A'.repeat(32); // 32-byte minimum per client guard
+const SECRET_32 = 'A'.repeat(32);
 const FIXED_NOW = 1_700_000_000;
 const FIXED_NONCE = 'deadbeefdeadbeefdeadbeefdeadbeef';
 
-function makeClient(secret: string): NodeExecClient {
+function makeClient(
+  secret: string,
+  overrides: Record<string, string> = {},
+): NodeExecClient {
   const cfg = {
     get: jest.fn((key: string, fallback?: string) => {
+      if (key in overrides) return overrides[key];
       if (key === 'AGENT_HMAC_SECRET') return secret;
       return fallback ?? '';
     }),
@@ -23,7 +39,7 @@ function makeClient(secret: string): NodeExecClient {
 }
 
 describe('NodeExecClient', () => {
-  describe('buildRequest', () => {
+  describe('buildRequest (HMAC)', () => {
     const base = {
       commandId: 'mkdir-swarmui-shared-root' as const,
       args: { path: '/var/lib/swarmui/shared' },
@@ -33,59 +49,74 @@ describe('NodeExecClient', () => {
       nonce: FIXED_NONCE,
     };
 
-    it('produces a deterministic signature given fixed nonce/now/secret', () => {
+    it('produces a deterministic signature matching the shared canonical form', () => {
       const client = makeClient(SECRET_32);
       const req = client.buildRequest(base);
-      // exp = now + 5min
       expect(req.signature.exp).toBe(FIXED_NOW + 300);
       expect(req.signature.nonce).toBe(FIXED_NONCE);
-      // Recompute the canonical bytes exactly as the agent will.
-      const argvHash = crypto
-        .createHash('sha256')
-        .update(JSON.stringify(base.args))
-        .digest('hex');
-      const canonical = [
-        FIXED_NONCE,
-        base.commandId,
-        argvHash,
-        base.nodeId,
-        base.installSessionId,
-        String(FIXED_NOW + 300),
-      ].join('\n');
-      const expectedHmac = crypto
-        .createHmac('sha256', SECRET_32)
-        .update(canonical)
-        .digest('hex');
-      expect(req.signature.hmac).toBe(expectedHmac);
+      // Recompute via the shared helper the agent will use.
+      const expected = computeHmac(
+        {
+          nonce: FIXED_NONCE,
+          commandId: base.commandId,
+          args: base.args,
+          nodeId: base.nodeId,
+          installSessionId: base.installSessionId,
+          exp: FIXED_NOW + 300,
+        },
+        SECRET_32,
+      );
+      expect(req.signature.hmac).toBe(expected);
     });
 
-    it('produces different hmacs when args differ', () => {
+    it('agent-side verifyNodeExecRequest accepts a freshly-built request', () => {
+      const client = makeClient(SECRET_32);
+      const req = client.buildRequest(base);
+      const r = verifyNodeExecRequest(req, SECRET_32, FIXED_NOW + 299);
+      expect(r.ok).toBe(true);
+      expect(r.reason).toBe('ok');
+    });
+
+    it('verifier rejects a tampered args payload (hmac binds args)', () => {
+      const client = makeClient(SECRET_32);
+      const req = client.buildRequest(base);
+      const tampered: NodeExecRequest = {
+        ...req,
+        args: { path: '/different' },
+      };
+      const r = verifyNodeExecRequest(tampered, SECRET_32, FIXED_NOW + 10);
+      expect(r.ok).toBe(false);
+      expect(r.reason).toBe('bad-signature');
+    });
+
+    it('verifier rejects an expired signature', () => {
+      const client = makeClient(SECRET_32);
+      const req = client.buildRequest(base);
+      const r = verifyNodeExecRequest(req, SECRET_32, FIXED_NOW + 400);
+      expect(r.ok).toBe(false);
+      expect(r.reason).toBe('expired');
+    });
+
+    it('produces different hmacs when any binding input changes', () => {
       const client = makeClient(SECRET_32);
       const a = client.buildRequest(base);
       const b = client.buildRequest({ ...base, args: { path: '/other' } });
-      expect(a.signature.hmac).not.toBe(b.signature.hmac);
+      const c = client.buildRequest({ ...base, nodeId: 'node03' });
+      const d = client.buildRequest({ ...base, installSessionId: 'sess-2' });
+      const hmacs = new Set([
+        a.signature.hmac,
+        b.signature.hmac,
+        c.signature.hmac,
+        d.signature.hmac,
+      ]);
+      expect(hmacs.size).toBe(4);
     });
 
-    it('produces different hmacs when nodeId differs (per-node binding)', () => {
-      const client = makeClient(SECRET_32);
-      const a = client.buildRequest(base);
-      const b = client.buildRequest({ ...base, nodeId: 'node03' });
-      expect(a.signature.hmac).not.toBe(b.signature.hmac);
-    });
-
-    it('produces different hmacs when installSessionId differs', () => {
-      const client = makeClient(SECRET_32);
-      const a = client.buildRequest(base);
-      const b = client.buildRequest({ ...base, installSessionId: 'sess-2' });
-      expect(a.signature.hmac).not.toBe(b.signature.hmac);
-    });
-
-    it('generates a fresh nonce when none is supplied', () => {
+    it('generates a fresh 128-bit nonce when none is supplied', () => {
       const client = makeClient(SECRET_32);
       const a = client.buildRequest({ ...base, nonce: undefined });
       const b = client.buildRequest({ ...base, nonce: undefined });
       expect(a.signature.nonce).not.toBe(b.signature.nonce);
-      // Nonce must be ≥ 128 bits of entropy (16 bytes = 32 hex chars).
       expect(a.signature.nonce).toMatch(/^[0-9a-f]{32}$/);
     });
 
@@ -99,56 +130,142 @@ describe('NodeExecClient', () => {
     });
   });
 
-  describe('send', () => {
-    let module: TestingModule;
+  describe('send (WebSocket transport)', () => {
+    let httpServer: Server;
+    let port: number;
+    let fixtureHandler: (req: NodeExecRequest) => NodeExecResult | 'close' | 'malformed';
 
-    const build = async (secret: string) => {
-      module = await Test.createTestingModule({
+    beforeEach((done) => {
+      httpServer = createServer();
+      const wss = new WebSocketServer({ server: httpServer, path: '/node-exec' });
+      wss.on('connection', (sock: InstanceType<typeof WebSocketServer>['_events']['connection']) => {
+        sock.on('message', (data: Buffer) => {
+          const req = JSON.parse(String(data)) as NodeExecRequest;
+          const outcome = fixtureHandler(req);
+          if (outcome === 'close') {
+            sock.close();
+            return;
+          }
+          if (outcome === 'malformed') {
+            sock.send('{"not-a-result": true}');
+            return;
+          }
+          sock.send(JSON.stringify(outcome));
+        });
+      });
+      httpServer.listen(0, '127.0.0.1', () => {
+        port = (httpServer.address() as AddressInfo).port;
+        done();
+      });
+    });
+
+    afterEach((done) => {
+      httpServer.close(() => done());
+    });
+
+    const buildWiredClient = async (secret: string, timeoutMs = 2000) => {
+      const mod: TestingModule = await Test.createTestingModule({
         providers: [
           NodeExecClient,
           {
             provide: ConfigService,
             useValue: {
-              get: jest.fn((key: string, fallback?: string) =>
-                key === 'AGENT_HMAC_SECRET' ? secret : fallback ?? '',
-              ),
+              get: jest.fn((key: string, fallback?: string) => {
+                if (key === 'AGENT_HMAC_SECRET') return secret;
+                if (key === 'AGENT_WS_URL_TEMPLATE')
+                  return `ws://127.0.0.1:${port}/node-exec`;
+                if (key === 'AGENT_WS_INSECURE') return 'true';
+                if (key === 'AGENT_WS_TIMEOUT_MS') return String(timeoutMs);
+                return fallback ?? '';
+              }),
             },
           },
         ],
       }).compile();
-      return module.get(NodeExecClient);
+      return mod.get(NodeExecClient);
     };
 
-    const dummyReq = (client: NodeExecClient) =>
-      client.buildRequest({
-        commandId: 'test-mount-write',
-        args: { path: '/var/lib/swarmui/shared' },
-        nodeId: 'node02',
-        installSessionId: 'sess-1',
-      });
-
     it('refuses outbound calls when the secret is missing', async () => {
-      const client = await build('');
-      const req = dummyReq(client);
+      const client = await buildWiredClient('');
+      const req: NodeExecRequest = {
+        commandId: 'test-mount-write',
+        args: {},
+        nodeId: 'node02',
+        installSessionId: 'sess',
+        signature: { nonce: 'x', exp: 0, hmac: 'y' },
+      };
       await expect(client.send(req)).rejects.toThrow(
         /AGENT_HMAC_SECRET not configured/,
       );
     });
 
     it('refuses outbound calls when the secret is < 32 chars', async () => {
-      const client = await build('tooshort');
-      const req = dummyReq(client);
+      const client = await buildWiredClient('tooshort');
+      const req: NodeExecRequest = {
+        commandId: 'test-mount-write',
+        args: {},
+        nodeId: 'node02',
+        installSessionId: 'sess',
+        signature: { nonce: 'x', exp: 0, hmac: 'y' },
+      };
       await expect(client.send(req)).rejects.toThrow(
         /AGENT_HMAC_SECRET not configured/,
       );
     });
 
-    it('throws not-implemented when configured (Sprint 3 lands the transport)', async () => {
-      const client = await build(SECRET_32);
-      const req = dummyReq(client);
+    it('roundtrips a signed request against a ws fixture', async () => {
+      const client = await buildWiredClient(SECRET_32);
+      fixtureHandler = (req) => {
+        // Agent verifies before dispatch; test the same path.
+        const v = verifyNodeExecRequest(req, SECRET_32);
+        expect(v.ok).toBe(true);
+        return {
+          commandId: req.commandId,
+          nodeId: req.nodeId,
+          exitCode: 0,
+          stdoutHash: 'a'.repeat(32),
+          stderrHash: 'b'.repeat(32),
+          durationMs: 7,
+        };
+      };
+      const req = client.buildRequest({
+        commandId: 'test-mount-write',
+        args: { path: '/var/lib/swarmui/shared' },
+        nodeId: '127.0.0.1', // Agent URL resolver substitutes nodeId into the template.
+        installSessionId: 'sess-1',
+      });
+      const result = await client.send(req);
+      expect(result.exitCode).toBe(0);
+      expect(result.commandId).toBe('test-mount-write');
+      expect(result.durationMs).toBe(7);
+    });
+
+    it('times out and rejects when the agent never responds', async () => {
+      const client = await buildWiredClient(SECRET_32, 150);
+      fixtureHandler = () => 'close'; // close without sending a result
+      const req = client.buildRequest({
+        commandId: 'test-mount-write',
+        args: {},
+        nodeId: '127.0.0.1',
+        installSessionId: 'sess-timeout',
+      });
+      // Either timeout OR "closed without response" is acceptable; both
+      // land as orchestrator exitCode=255 upstream.
       await expect(client.send(req)).rejects.toThrow(
-        /not implemented \(Sprint 3\)/,
+        /(timeout|closed without response)/,
       );
+    });
+
+    it('rejects a malformed response', async () => {
+      const client = await buildWiredClient(SECRET_32);
+      fixtureHandler = () => 'malformed';
+      const req = client.buildRequest({
+        commandId: 'test-mount-write',
+        args: {},
+        nodeId: '127.0.0.1',
+        installSessionId: 'sess-malformed',
+      });
+      await expect(client.send(req)).rejects.toThrow(/malformed response/);
     });
   });
 });

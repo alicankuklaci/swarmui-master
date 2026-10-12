@@ -1,35 +1,40 @@
 import * as crypto from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type {
-  NodeExecRequest,
-  NodeExecResult,
+import {
+  DEFAULT_EXP_WINDOW_SEC,
+  HMAC_SECRET_MIN_BYTES,
+  computeHmac,
+  type NodeExecRequest,
+  type NodeExecResult,
 } from '@swarmui-master/storage-plan';
 
-// Signs and forwards a /node-exec request to the swarm-agent on a specific
-// node. v1 is a stub — the actual WebSocket client lands in Sprint 3 alongside
-// the SeaweedFS installer. The HMAC construction below is final though; the
-// agent side will re-compute and verify the same inputs.
+// Signs and forwards a `/node-exec` request to the swarm-agent on a specific
+// node. HMAC construction is shared with the agent via
+// storage-plan/hmac.ts so a drift between the two is a type error at build
+// time, not a silent reject at install time.
 //
-// HMAC input (canonical order, newline-separated, no trailing newline):
-//   nonce
-//   commandId
-//   sha256(JSON.stringify(args))  // hex
-//   nodeId
-//   installSessionId
-//   exp
+// Agent URL resolution:
+//   AGENT_WS_URL_TEMPLATE   wss://{nodeId}:9443/node-exec (default)
+//                           Substitutes {nodeId} per step.
+//   AGENT_WS_INSECURE       '1' | 'true' → use the template verbatim even if
+//                           it is ws://; otherwise upgrade ws → wss.
 //
-// Secret: AGENT_HMAC_SECRET env var; must be ≥ 32 bytes. Separate from
-// AGENT_TOKEN so a legacy token leak doesn't forge new installs.
+// Per-call timeout: AGENT_WS_TIMEOUT_MS (default 60s). On timeout the socket
+// is closed and send() rejects — the orchestrator converts that into a
+// synthetic exitCode=255 result so audits and SSE stay consistent.
 @Injectable()
 export class NodeExecClient {
   private readonly logger = new Logger(NodeExecClient.name);
   private readonly hmacSecret: string;
-  private readonly expWindowSec = 300; // 5 min
+  private readonly urlTemplate: string;
+  private readonly timeoutMs: number;
+  private readonly expWindowSec = DEFAULT_EXP_WINDOW_SEC;
+  private readonly insecure: boolean;
 
   constructor(private readonly config: ConfigService) {
     this.hmacSecret = this.config.get<string>('AGENT_HMAC_SECRET', '');
-    if (!this.hmacSecret || this.hmacSecret.length < 32) {
+    if (!this.hmacSecret || this.hmacSecret.length < HMAC_SECRET_MIN_BYTES) {
       // Deliberately a warn, not a throw — we want the module to boot behind
       // the feature flag even in environments that haven't configured HMAC
       // yet. send() refuses outbound calls without a strong secret.
@@ -37,10 +42,17 @@ export class NodeExecClient {
         'AGENT_HMAC_SECRET missing or < 32 chars; node-exec calls will be refused until it is configured',
       );
     }
+    this.urlTemplate = this.config.get<string>(
+      'AGENT_WS_URL_TEMPLATE',
+      'wss://{nodeId}:9443/node-exec',
+    );
+    this.timeoutMs = Number(this.config.get<string>('AGENT_WS_TIMEOUT_MS', '60000'));
+    this.insecure =
+      (this.config.get<string>('AGENT_WS_INSECURE', 'false') || 'false')
+        .toLowerCase() === 'true';
   }
 
-  // Builds a signed request. Pure, no I/O — useful for the agent-side tests
-  // that need to replay the same signature.
+  // Builds a signed request. Pure, no I/O.
   buildRequest(input: {
     commandId: NodeExecRequest['commandId'];
     args: NodeExecRequest['args'];
@@ -52,22 +64,17 @@ export class NodeExecClient {
     const nowSec = input.nowSec ?? Math.floor(Date.now() / 1000);
     const nonce = input.nonce ?? crypto.randomBytes(16).toString('hex');
     const exp = nowSec + this.expWindowSec;
-    const argvHash = crypto
-      .createHash('sha256')
-      .update(JSON.stringify(input.args))
-      .digest('hex');
-    const canonical = [
-      nonce,
-      input.commandId,
-      argvHash,
-      input.nodeId,
-      input.installSessionId,
-      String(exp),
-    ].join('\n');
-    const hmac = crypto
-      .createHmac('sha256', this.hmacSecret)
-      .update(canonical)
-      .digest('hex');
+    const hmac = computeHmac(
+      {
+        nonce,
+        commandId: input.commandId,
+        args: input.args,
+        nodeId: input.nodeId,
+        installSessionId: input.installSessionId,
+        exp,
+      },
+      this.hmacSecret,
+    );
     return {
       commandId: input.commandId,
       args: input.args,
@@ -77,13 +84,97 @@ export class NodeExecClient {
     };
   }
 
-  // Stub: the real WebSocket round-trip lands in Sprint 3. Here only so the
-  // state machine and installer can be exercised in integration tests with a
-  // test double (replace this provider with an in-memory mock).
-  async send(_request: NodeExecRequest): Promise<NodeExecResult> {
-    if (!this.hmacSecret || this.hmacSecret.length < 32) {
+  // Opens a short-lived WebSocket to the agent, sends the signed request,
+  // awaits the result or a timeout. One connection per step keeps the
+  // failure modes small: a flaky agent breaks one step, not a whole batch.
+  async send(request: NodeExecRequest): Promise<NodeExecResult> {
+    if (!this.hmacSecret || this.hmacSecret.length < HMAC_SECRET_MIN_BYTES) {
       throw new Error('node-exec disabled: AGENT_HMAC_SECRET not configured');
     }
-    throw new Error('node-exec client not implemented (Sprint 3)');
+    const url = this.resolveUrl(request.nodeId);
+    return new Promise<NodeExecResult>((resolve, reject) => {
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
+      // Node 22's global WebSocket matches the browser API — one close() to
+      // kill the socket, no library-specific lifecycle.
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(url);
+      } catch (err) {
+        return reject(err);
+      }
+      const timer = setTimeout(() => {
+        settle(() => {
+          try {
+            socket.close();
+          } catch {
+            /* ignore */
+          }
+          reject(new Error(`node-exec timeout after ${this.timeoutMs}ms (${url})`));
+        });
+      }, this.timeoutMs);
+
+      socket.onopen = () => {
+        try {
+          socket.send(JSON.stringify(request));
+        } catch (err) {
+          settle(() => {
+            clearTimeout(timer);
+            reject(err);
+          });
+        }
+      };
+      socket.onmessage = (ev) => {
+        settle(() => {
+          clearTimeout(timer);
+          try {
+            const parsed = JSON.parse(String(ev.data)) as NodeExecResult;
+            // Minimum sanity — the orchestrator reads exitCode and the
+            // audit layer reads the hashes. Anything missing is a protocol
+            // break.
+            if (
+              typeof parsed.exitCode !== 'number' ||
+              typeof parsed.stdoutHash !== 'string' ||
+              typeof parsed.stderrHash !== 'string'
+            ) {
+              reject(new Error('node-exec: malformed response from agent'));
+            } else {
+              resolve(parsed);
+            }
+          } catch (err) {
+            reject(err);
+          } finally {
+            try {
+              socket.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        });
+      };
+      socket.onerror = () => {
+        settle(() => {
+          clearTimeout(timer);
+          reject(new Error(`node-exec: connection error (${url})`));
+        });
+      };
+      socket.onclose = () => {
+        settle(() => {
+          clearTimeout(timer);
+          reject(new Error(`node-exec: connection closed without response (${url})`));
+        });
+      };
+    });
+  }
+
+  private resolveUrl(nodeId: string): string {
+    const base = this.urlTemplate.replace('{nodeId}', nodeId);
+    if (this.insecure) return base;
+    // Upgrade ws → wss unless the operator explicitly allowed plaintext.
+    return base.replace(/^ws:\/\//, 'wss://');
   }
 }
