@@ -83,15 +83,18 @@ export class StorageService {
   ): Promise<{ installSessionId: string }> {
     const installSessionId = uuidv4();
 
-    // Atomic acquire: HEALTHY|DEGRADED → DRAINING. Any other state fails
-    // the filter and `acquired` is null. Returning the pre-update doc
-    // (`new: false` default) gives us the previous state so we can roll
-    // back on consumer-refuse without hard-coding HEALTHY.
+    // Atomic acquire: HEALTHY | DEGRADED | UNINSTALL_FAILED → DRAINING.
+    // Any other state fails the filter and `acquired` is null. The
+    // UNINSTALL_FAILED path lets an operator retry a half-finished
+    // teardown after fixing the host (orphaned container, busy mount);
+    // the FSM has explicitly allowed UNINSTALL_FAILED → DRAINING since
+    // Sprint 2 but queueUninstall didn't expose it, leaving operators
+    // staring at a dead-end state with no API-level recovery.
     const acquired = await this.storageModel
       .findOneAndUpdate(
         {
           _id: StorageService.PRIMARY_ID,
-          state: { $in: ['HEALTHY', 'DEGRADED'] },
+          state: { $in: ['HEALTHY', 'DEGRADED', 'UNINSTALL_FAILED'] },
         },
         {
           $set: {
@@ -119,7 +122,9 @@ export class StorageService {
     }
 
     // Filter guaranteed state ∈ {HEALTHY, DEGRADED}; narrow for rollback helper.
-    const prevState = acquired.state as 'HEALTHY' | 'DEGRADED';
+    // Filter guaranteed state ∈ {HEALTHY, DEGRADED, UNINSTALL_FAILED}; narrow
+    // for rollback helper.
+    const prevState = acquired.state as 'HEALTHY' | 'DEGRADED' | 'UNINSTALL_FAILED';
 
     // Enumerate inside the DRAINING lock. Anything that bind-mounts after
     // this point is the operator's problem — they attempted a mount while
@@ -182,7 +187,7 @@ export class StorageService {
   // sees the doc in a different state via the state transition event.
   private async rollbackDraining(
     installSessionId: string,
-    prevState: 'HEALTHY' | 'DEGRADED',
+    prevState: 'HEALTHY' | 'DEGRADED' | 'UNINSTALL_FAILED',
   ): Promise<void> {
     const res = await this.storageModel
       .updateOne(

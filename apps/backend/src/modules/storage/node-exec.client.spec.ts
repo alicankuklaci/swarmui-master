@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   computeHmac,
+  InMemoryNonceStore,
   verifyNodeExecRequest,
   type NodeExecRequest,
   type NodeExecResult,
@@ -118,6 +119,32 @@ describe('NodeExecClient', () => {
       const r = verifyNodeExecRequest(tampered, SECRET_32, FIXED_NOW + 10);
       expect(r.ok).toBe(false);
       expect(r.reason).toBe('bad-signature');
+    });
+
+    it('Sprint 8-security: verifier rejects a replayed nonce with reason=nonce-replay', () => {
+      // Captured-request replay: an attacker who sniffed one install step
+      // can resend it within the 5-min exp window. The nonce store makes
+      // the second request a `nonce-replay` reject even though the HMAC
+      // itself is still valid.
+      const store = new InMemoryNonceStore();
+      const client = makeClient(SECRET_32);
+      const req = client.buildRequest(base);
+      const first = verifyNodeExecRequest(req, SECRET_32, FIXED_NOW + 10, store);
+      expect(first.ok).toBe(true);
+      const second = verifyNodeExecRequest(req, SECRET_32, FIXED_NOW + 20, store);
+      expect(second.ok).toBe(false);
+      expect(second.reason).toBe('nonce-replay');
+    });
+
+    it('Sprint 8-security: nonce store scavenges expired entries so memory stays bounded', () => {
+      const store = new InMemoryNonceStore();
+      // Burn one nonce.
+      store.checkAndRecord('n-1', FIXED_NOW + 10, FIXED_NOW);
+      expect(store.size()).toBe(1);
+      // Advance past the burn's exp — the next check scavenges on the way in.
+      const fresh = store.checkAndRecord('n-2', FIXED_NOW + 400, FIXED_NOW + 100);
+      expect(fresh).toBe(true);
+      expect(store.size()).toBe(1); // only the new entry remains
     });
 
     it('verifier rejects an expired signature', () => {

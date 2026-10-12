@@ -95,7 +95,12 @@ export class SeaweedfsDriver implements IStorageDriver {
         description: `Create ${mountPoint} on ${node}`,
         nodeId: node,
         commandId: 'mkdir-swarmui-shared-root' satisfies NodeExecCommandId,
-        args: { path: mountPoint, mode: '0750' },
+        // fs.ts reads `mountPoint`; previously this passed `path` and the
+        // handler silently fell back to its DEFAULT_MOUNT. The two paths
+        // happened to agree only because both defaulted to the same
+        // /var/lib/swarmui/shared — a custom mountPoint would have mkdir'd
+        // the default instead of the plan's declared target.
+        args: { mountPoint, mode: '0750' },
       });
       steps.push({
         id: `s${next()}-apt-fuse3-${node}`,
@@ -225,7 +230,7 @@ export class SeaweedfsDriver implements IStorageDriver {
       description: `Canary write to ${mountPoint} on ${master}`,
       nodeId: master,
       commandId: 'test-mount-write' satisfies NodeExecCommandId,
-      args: { path: mountPoint },
+      args: { mountPoint },
     });
 
     return {

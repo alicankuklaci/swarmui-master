@@ -54,16 +54,64 @@ export function computeHmac(input: CanonicalInput, secret: string): string {
 
 export interface HmacVerifyResult {
   ok: boolean;
-  // One of: 'ok' | 'expired' | 'bad-signature' | 'short-secret' | 'bad-shape'.
-  // Agents log this as the dispatch reject reason without echoing the HMAC
-  // or the secret.
-  reason: 'ok' | 'expired' | 'bad-signature' | 'short-secret' | 'bad-shape';
+  // One of the reason codes. Agents log this as the dispatch reject reason
+  // without echoing the HMAC or the secret.
+  reason:
+    | 'ok'
+    | 'expired'
+    | 'bad-signature'
+    | 'short-secret'
+    | 'bad-shape'
+    | 'nonce-replay';
+}
+
+// Nonce replay store. The agent consults this *after* HMAC verification
+// passes — a successful first use must be recorded, and a repeated nonce
+// within the expiration window is rejected as a replay. Implementations
+// drop entries older than DEFAULT_EXP_WINDOW_SEC so memory stays bounded.
+export interface NonceStore {
+  // Record the nonce as seen with an absolute expiration (unix seconds).
+  // Returns true if the nonce was previously unseen (first use), false if
+  // it was already recorded. Must be atomic — a check-then-record race
+  // would let two in-flight requests with the same captured HMAC both land.
+  checkAndRecord(nonce: string, expSec: number, nowSec: number): boolean;
+}
+
+// Default in-memory nonce store. Lives per-agent-process. On agent restart
+// the window resets (fine — the HMAC's own `exp` becomes the floor). A
+// 5-min window + the per-node request rate puts this at a few hundred
+// entries steady-state, so a Map suffices; we scavenge opportunistically
+// on each call to avoid a background timer.
+export class InMemoryNonceStore implements NonceStore {
+  private readonly seen = new Map<string, number>(); // nonce → expSec
+
+  checkAndRecord(nonce: string, expSec: number, nowSec: number): boolean {
+    this.scavenge(nowSec);
+    if (this.seen.has(nonce)) return false;
+    this.seen.set(nonce, expSec);
+    return true;
+  }
+
+  private scavenge(nowSec: number): void {
+    // Opportunistic: amortizes to O(n) over n inserts, which keeps the
+    // common path a plain Map lookup.
+    for (const [k, exp] of this.seen) {
+      if (exp < nowSec) this.seen.delete(k);
+    }
+  }
+
+  // Exposed for tests + diagnostics only. Not part of the NonceStore
+  // interface — callers should not depend on it.
+  size(): number {
+    return this.seen.size;
+  }
 }
 
 export function verifyNodeExecRequest(
   req: NodeExecRequest,
   secret: string,
   nowSec: number = Math.floor(Date.now() / 1000),
+  nonceStore?: NonceStore,
 ): HmacVerifyResult {
   if (typeof secret !== 'string' || secret.length < HMAC_SECRET_MIN_BYTES) {
     return { ok: false, reason: 'short-secret' };
@@ -98,5 +146,13 @@ export function verifyNodeExecRequest(
     return { ok: false, reason: 'bad-signature' };
   }
   const equal = crypto.timingSafeEqual(a, b);
-  return equal ? { ok: true, reason: 'ok' } : { ok: false, reason: 'bad-signature' };
+  if (!equal) return { ok: false, reason: 'bad-signature' };
+  // Nonce check runs AFTER signature verification: an attacker without the
+  // HMAC secret cannot pollute the store with arbitrary nonces, and a bad-
+  // signature request isn't counted as a "first use" of the nonce.
+  if (nonceStore) {
+    const fresh = nonceStore.checkAndRecord(sig.nonce, sig.exp, nowSec);
+    if (!fresh) return { ok: false, reason: 'nonce-replay' };
+  }
+  return { ok: true, reason: 'ok' };
 }

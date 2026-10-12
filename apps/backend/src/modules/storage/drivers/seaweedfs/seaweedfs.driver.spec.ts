@@ -112,7 +112,9 @@ describe('SeaweedfsDriver', () => {
       // Every mkdir and mount-unit step points at the custom path.
       for (const step of plan.steps) {
         if (step.commandId === 'mkdir-swarmui-shared-root') {
-          expect(step.args.path).toBe('/mnt/custom');
+          // Sprint 8 security fix: driver now uses `mountPoint` (what the
+          // fs handler reads) instead of the mismatched `path` key.
+          expect(step.args.mountPoint).toBe('/mnt/custom');
         }
         if (step.commandId === 'install-seaweedfs-mount-systemd-unit') {
           expect(step.args.mountPoint).toBe('/mnt/custom');

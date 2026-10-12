@@ -70,6 +70,37 @@ async function inspectContainerState(
   return status === 'running' ? 'running' : 'stopped';
 }
 
+// Sprint 8 security #D: idempotency drift mask fix. Previously `existing
+// === 'running'` was treated as "already converged" regardless of what
+// image or args the running container actually had — an operator upgrading
+// the SeaweedFS image or flipping a replication setting would see the
+// plan step succeed with no action taken, and the cluster would stay on
+// the old container indefinitely. Compare the running container's image
+// against the plan's and `rm -f` + re-run on drift.
+async function inspectContainerImage(
+  exec: Exec,
+  name: string,
+): Promise<string | undefined> {
+  const out = await exec(
+    ['docker', 'inspect', '-f', '{{.Config.Image}}', name],
+    { timeoutMs: DOCKER_INSPECT_TIMEOUT_MS },
+  );
+  if (out.exitCode !== 0) return undefined;
+  return (out.stdoutTail ?? '').trim() || undefined;
+}
+
+// True when the running container's image matches the plan's expectation.
+// A missing (undefined) image is treated as a mismatch — safer to re-run
+// than skip when we can't verify.
+async function runningMatchesPlan(
+  exec: Exec,
+  name: string,
+  expectedImage: string,
+): Promise<boolean> {
+  const actual = await inspectContainerImage(exec, name);
+  return actual === expectedImage;
+}
+
 async function stopAndRemove(exec: Exec, name: string): Promise<ExecOutcome> {
   // `rm -f` on a running container stops+removes atomically — one fewer
   // round trip than stop + rm, and we don't care about graceful shutdown
@@ -109,11 +140,14 @@ export function dockerRunMasterHandler(exec: Exec = defaultExec): CommandHandler
 
     const existing = await inspectContainerState(exec, MASTER_NAME);
     if (existing === 'running') {
-      // Already up — idempotent success. Return a zero-exit outcome without
-      // reaching for docker again.
-      return toResult(req, idempotentOk());
-    }
-    if (existing === 'stopped') {
+      if (await runningMatchesPlan(exec, MASTER_NAME, image)) {
+        return toResult(req, idempotentOk());
+      }
+      // Image drift — operator upgraded the plan but the running container
+      // is still on the old image. Replace it.
+      const rm = await stopAndRemove(exec, MASTER_NAME);
+      if (rm.exitCode !== 0) return toResult(req, rm);
+    } else if (existing === 'stopped') {
       const rm = await stopAndRemove(exec, MASTER_NAME);
       if (rm.exitCode !== 0) return toResult(req, rm);
     }
@@ -164,8 +198,13 @@ export function dockerRunVolumeHandler(exec: Exec = defaultExec): CommandHandler
     const rack = assertStringMatch(req.args.rack, DC_RACK_RE, 'rack');
 
     const existing = await inspectContainerState(exec, VOLUME_NAME);
-    if (existing === 'running') return toResult(req, idempotentOk());
-    if (existing === 'stopped') {
+    if (existing === 'running') {
+      if (await runningMatchesPlan(exec, VOLUME_NAME, image)) {
+        return toResult(req, idempotentOk());
+      }
+      const rm = await stopAndRemove(exec, VOLUME_NAME);
+      if (rm.exitCode !== 0) return toResult(req, rm);
+    } else if (existing === 'stopped') {
       const rm = await stopAndRemove(exec, VOLUME_NAME);
       if (rm.exitCode !== 0) return toResult(req, rm);
     }
@@ -216,8 +255,13 @@ export function dockerRunFilerHandler(exec: Exec = defaultExec): CommandHandler 
     const master = assertStringMatch(req.args.master, MASTER_URL_RE, 'master');
 
     const existing = await inspectContainerState(exec, FILER_NAME);
-    if (existing === 'running') return toResult(req, idempotentOk());
-    if (existing === 'stopped') {
+    if (existing === 'running') {
+      if (await runningMatchesPlan(exec, FILER_NAME, image)) {
+        return toResult(req, idempotentOk());
+      }
+      const rm = await stopAndRemove(exec, FILER_NAME);
+      if (rm.exitCode !== 0) return toResult(req, rm);
+    } else if (existing === 'stopped') {
       const rm = await stopAndRemove(exec, FILER_NAME);
       if (rm.exitCode !== 0) return toResult(req, rm);
     }

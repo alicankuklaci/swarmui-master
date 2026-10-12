@@ -52,11 +52,15 @@ describe('StorageController (SSE)', () => {
     ...extra,
   });
 
+  // Admin bypasses the per-user authz check (Sprint 8 security). The SSE
+  // method is now async because the authz path reads the doc, so each
+  // test awaits the observable before subscribing.
+  const adminReq = { user: { id: 'admin-1', role: 'admin' } };
+
   it('forwards events for the subscribed session and ignores others', async () => {
     const received: MessageEvent[] = [];
-    const sub = controller
-      .streamInstallEvents('sess-A')
-      .subscribe({ next: (m) => received.push(m) });
+    const obs = await controller.streamInstallEvents('sess-A', adminReq);
+    const sub = obs.subscribe({ next: (m) => received.push(m) });
 
     emitter.emit(STORAGE_INSTALL_EVENT, frame('sess-B', 'step', 1)); // ignored
     emitter.emit(STORAGE_INSTALL_EVENT, frame('sess-A', 'started', 0));
@@ -74,9 +78,8 @@ describe('StorageController (SSE)', () => {
 
   it('completes the observable on a done frame', async () => {
     const completed = jest.fn();
-    const sub = controller
-      .streamInstallEvents('sess-C')
-      .subscribe({ complete: completed });
+    const obs = await controller.streamInstallEvents('sess-C', adminReq);
+    const sub = obs.subscribe({ complete: completed });
 
     emitter.emit(STORAGE_INSTALL_EVENT, frame('sess-C', 'step', 1));
     expect(completed).not.toHaveBeenCalled();
@@ -88,9 +91,8 @@ describe('StorageController (SSE)', () => {
 
   it('completes the observable on a failed frame', async () => {
     const completed = jest.fn();
-    const sub = controller
-      .streamInstallEvents('sess-D')
-      .subscribe({ complete: completed });
+    const obs = await controller.streamInstallEvents('sess-D', adminReq);
+    const sub = obs.subscribe({ complete: completed });
 
     emitter.emit(STORAGE_INSTALL_EVENT, frame('sess-D', 'failed', 2, { state: 'UNINSTALL_FAILED' }));
     expect(completed).toHaveBeenCalledTimes(1);
@@ -98,11 +100,58 @@ describe('StorageController (SSE)', () => {
     sub.unsubscribe();
   });
 
-  it('removes its listener on unsubscribe (no leak per connection)', () => {
+  it('removes its listener on unsubscribe (no leak per connection)', async () => {
     const before = emitter.listenerCount(STORAGE_INSTALL_EVENT);
-    const sub = controller.streamInstallEvents('sess-E').subscribe();
+    const obs = await controller.streamInstallEvents('sess-E', adminReq);
+    const sub = obs.subscribe();
     expect(emitter.listenerCount(STORAGE_INSTALL_EVENT)).toBe(before + 1);
     sub.unsubscribe();
     expect(emitter.listenerCount(STORAGE_INSTALL_EVENT)).toBe(before);
+  });
+
+  // Sprint 8 security: per-user authz. A non-admin whose user id doesn't
+  // match the install's initiatedBy gets a 404 (deliberately not 403 — the
+  // existence of another user's session is itself the side-channel).
+  it('refuses a non-admin whose user id does not match initiatedBy', async () => {
+    const svc = { getStatus: jest.fn().mockResolvedValue({
+      installSessionId: 'sess-F',
+      initiatedBy: 'alice',
+    }) };
+    const mod = await Test.createTestingModule({
+      controllers: [StorageController],
+      providers: [
+        { provide: StorageService, useValue: svc },
+        EventEmitter2,
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: (_: ExecutionContext) => true })
+      .compile();
+    const c = mod.get(StorageController);
+    await expect(
+      c.streamInstallEvents('sess-F', { user: { id: 'bob', role: 'user' } }),
+    ).rejects.toThrow(/not found or not accessible/);
+  });
+
+  it('allows a non-admin tailing their own install session', async () => {
+    const svc = { getStatus: jest.fn().mockResolvedValue({
+      installSessionId: 'sess-G',
+      initiatedBy: 'alice',
+    }) };
+    const mod = await Test.createTestingModule({
+      controllers: [StorageController],
+      providers: [
+        { provide: StorageService, useValue: svc },
+        EventEmitter2,
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: (_: ExecutionContext) => true })
+      .compile();
+    const c = mod.get(StorageController);
+    const obs = await c.streamInstallEvents('sess-G', {
+      user: { id: 'alice', role: 'user' },
+    });
+    expect(obs).toBeTruthy();
   });
 });

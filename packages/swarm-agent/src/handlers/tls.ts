@@ -133,8 +133,28 @@ async function generateCa(
   exec: Exec,
   commonName: string,
 ): Promise<ExecOutcome> {
+  // Sprint 8 security: umask race fix. Previously genpkey created the CA
+  // key file with the process umask (typically 0022 → mode 0644), briefly
+  // making the private key world-readable before the follow-up chmod 0600
+  // tightened it. The `sh -c 'umask 0077; openssl …'` wrapper forces the
+  // file to be created at 0600 from the start — no window for a reader on
+  // another process to grab it. The explicit chmod stays as a belt-and-
+  // braces guarantee against a stale umask inheritance.
   const key = await exec(
-    ['openssl', 'genpkey', '-algorithm', 'RSA', '-pkeyopt', `rsa_keygen_bits:${CA_KEY_BITS}`, '-out', CA_KEY],
+    [
+      'sh',
+      '-c',
+      'umask 0077; exec "$@"',
+      'tls-ca-genpkey',
+      'openssl',
+      'genpkey',
+      '-algorithm',
+      'RSA',
+      '-pkeyopt',
+      `rsa_keygen_bits:${CA_KEY_BITS}`,
+      '-out',
+      CA_KEY,
+    ],
     { timeoutMs: OPENSSL_TIMEOUT_MS },
   );
   if (key.exitCode !== 0) return key;
@@ -166,8 +186,13 @@ async function signNodeCert(exec: Exec, node: string): Promise<ExecOutcome> {
   const nodeCsr = `${TLS_DIR}/${node}.csr`;
   const nodeCrt = `${TLS_DIR}/${node}.crt`;
 
+  // Same umask-race protection as generateCa: force 0600 at creation time.
   const key = await exec(
     [
+      'sh',
+      '-c',
+      'umask 0077; exec "$@"',
+      'tls-node-genpkey',
       'openssl',
       'genpkey',
       '-algorithm',

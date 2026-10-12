@@ -129,7 +129,9 @@ describe('StorageService.queueUninstall', () => {
     'ADOPTING',
     'DRAINING',
     'UNINSTALLED',
-    'UNINSTALL_FAILED',
+    // UNINSTALL_FAILED intentionally removed — Sprint 8 security fix: the
+    // FSM allows UNINSTALL_FAILED → DRAINING retry and the service now
+    // exposes it so operators can recover from a half-finished teardown.
     'RECOVERING',
   ] satisfies StorageState[])(
     'rejects with ConflictException when state is %s',

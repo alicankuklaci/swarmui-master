@@ -40,8 +40,10 @@ import { NfsDriver } from './drivers/nfs/nfs.driver';
     // Local EventEmitter — install orchestrator → SSE controller. AppModule
     // already calls forRoot() so the instance here is a no-op if the global
     // one wins the DI race, but declaring it locally keeps the module
-    // self-contained for unit boots.
-    EventEmitterModule.forRoot(),
+    // self-contained for unit boots. maxListeners bumped from the default
+    // 10 so multiple admins + the active installer tailing the same install
+    // SSE stream don't trip Node's "possible memory leak" warning.
+    EventEmitterModule.forRoot({ maxListeners: 50, verboseMemoryLeak: true }),
   ],
   controllers: [StorageController],
   providers: [

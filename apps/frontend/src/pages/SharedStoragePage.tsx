@@ -189,8 +189,14 @@ export function SharedStoragePage() {
       // the query hasn't refetched yet.
       installMutation.isPending ||
       uninstallMutation.isPending);
+  // UNINSTALL_FAILED is a dead-end from a user flow standpoint if we don't
+  // surface a retry — the FSM allows UNINSTALL_FAILED → DRAINING and the
+  // service's atomic acquire now accepts it, so expose the button to let
+  // an operator retry after fixing the host (orphaned container, busy mount).
   const canUninstall =
-    status?.state === 'HEALTHY' || status?.state === 'DEGRADED';
+    status?.state === 'HEALTHY' ||
+    status?.state === 'DEGRADED' ||
+    status?.state === 'UNINSTALL_FAILED';
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
@@ -226,7 +232,7 @@ export function SharedStoragePage() {
               ) : (
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
-              Uninstall
+              {status?.state === 'UNINSTALL_FAILED' ? 'Retry uninstall' : 'Uninstall'}
             </Button>
           )}
         </div>
