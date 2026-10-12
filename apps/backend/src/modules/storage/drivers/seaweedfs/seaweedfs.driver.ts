@@ -6,6 +6,7 @@ import type {
   SharedStorageConfig,
   StorageBackend,
 } from '@swarmui-master/storage-plan';
+import { ConsumerInspectorService } from '../../consumer-inspector.service';
 import { IStorageDriver } from '../driver.interface';
 
 // SeaweedFS driver — Sprint 2.
@@ -42,6 +43,8 @@ const SW_IMAGE = 'chrislusf/seaweedfs:3.80';
 @Injectable()
 export class SeaweedfsDriver implements IStorageDriver {
   readonly backend: StorageBackend = 'seaweedfs';
+
+  constructor(private readonly consumerInspector: ConsumerInspectorService) {}
 
   plan(config: SharedStorageConfig, sessionId: string): InstallPlan {
     this.validate(config);
@@ -309,12 +312,11 @@ export class SeaweedfsDriver implements IStorageDriver {
     };
   }
 
-  async enumerateConsumers(_mountPoint: string): Promise<string[]> {
-    // Sprint 4 wires this against the stacks/services inspector: enumerate
-    // every service whose spec bind-mounts `mountPoint` and return their names.
-    // Returning [] here means Sprint 2 integration tests can still exercise
-    // the install path end-to-end without a stack inspector mock.
-    return [];
+  async enumerateConsumers(mountPoint: string): Promise<string[]> {
+    // Sprint 4: delegate to the shared inspector. The service enumerates
+    // swarm services whose spec bind-mounts the shared mount, so the delete
+    // path can refuse an uninstall while anyone is still using the storage.
+    return this.consumerInspector.enumerateConsumers(mountPoint);
   }
 
   private validate(config: SharedStorageConfig): void {

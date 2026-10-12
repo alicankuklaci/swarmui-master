@@ -9,6 +9,7 @@ import {
 } from '@swarmui-master/storage-plan';
 import { startAgent, type AgentHandle } from '@swarmui-master/swarm-agent';
 import { StorageAuditService } from './audit.service';
+import { ConsumerInspectorService } from './consumer-inspector.service';
 import { DriverRegistry } from './drivers/driver.registry';
 import { NfsDriver } from './drivers/nfs/nfs.driver';
 import { SeaweedfsDriver } from './drivers/seaweedfs/seaweedfs.driver';
@@ -16,6 +17,10 @@ import { InstallOrchestratorService } from './install-orchestrator.service';
 import { NodeExecClient } from './node-exec.client';
 import { SharedStorage } from './schemas/shared-storage.schema';
 import { StorageAuditLog } from './schemas/storage-audit.schema';
+
+// Install path never calls enumerateConsumers — the empty-returning stub
+// keeps the DI graph satisfied without needing a dockerode fixture.
+const inspectorStub = { enumerateConsumers: jest.fn().mockResolvedValue([]) };
 
 // End-to-end install over a live swarm-agent process. The orchestrator, the
 // SeaweedFS driver, the HMAC client, and the agent dispatcher all run as
@@ -73,6 +78,7 @@ describe('Install integration — orchestrator ↔ swarm-agent', () => {
         DriverRegistry,
         SeaweedfsDriver,
         NfsDriver,
+        { provide: ConsumerInspectorService, useValue: inspectorStub },
         EventEmitter2,
         {
           provide: ConfigService,
@@ -168,6 +174,7 @@ describe('Install integration — orchestrator ↔ swarm-agent', () => {
         DriverRegistry,
         SeaweedfsDriver,
         NfsDriver,
+        { provide: ConsumerInspectorService, useValue: inspectorStub },
         EventEmitter2,
         {
           provide: ConfigService,

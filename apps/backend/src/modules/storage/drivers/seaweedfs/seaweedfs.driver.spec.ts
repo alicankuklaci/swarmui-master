@@ -23,7 +23,10 @@ const baseConfig = (
 describe('SeaweedfsDriver', () => {
   let driver: SeaweedfsDriver;
   beforeEach(() => {
-    driver = new SeaweedfsDriver();
+    // plan() tests don't exercise enumerateConsumers; a null-cast inspector
+    // keeps construction cheap. Any test that calls enumerateConsumers must
+    // provide a real mock.
+    driver = new SeaweedfsDriver(null as unknown as ConstructorParameters<typeof SeaweedfsDriver>[0]);
   });
 
   describe('plan()', () => {
@@ -219,8 +222,19 @@ describe('SeaweedfsDriver', () => {
   });
 
   describe('enumerateConsumers()', () => {
-    it('returns [] until Sprint 4 wires the stacks inspector', async () => {
-      await expect(driver.enumerateConsumers('/var/lib/swarmui/shared')).resolves.toEqual([]);
+    it('delegates to the injected ConsumerInspectorService and forwards the mount point', async () => {
+      const inspector = {
+        enumerateConsumers: jest
+          .fn()
+          .mockResolvedValue(['stack-a', 'stack-b']),
+      };
+      const d = new SeaweedfsDriver(inspector as never);
+      await expect(
+        d.enumerateConsumers('/var/lib/swarmui/shared'),
+      ).resolves.toEqual(['stack-a', 'stack-b']);
+      expect(inspector.enumerateConsumers).toHaveBeenCalledWith(
+        '/var/lib/swarmui/shared',
+      );
     });
   });
 });

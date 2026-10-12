@@ -4,6 +4,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { StorageAuditService } from './audit.service';
+import { ConsumerInspectorService } from './consumer-inspector.service';
 import { InstallOrchestratorService } from './install-orchestrator.service';
 import { NodeExecClient } from './node-exec.client';
 import { StorageReconcilerService } from './reconciler.service';
@@ -45,6 +46,7 @@ import { NfsDriver } from './drivers/nfs/nfs.driver';
   controllers: [StorageController],
   providers: [
     StorageAuditService,
+    ConsumerInspectorService,
     NodeExecClient,
     DriverRegistry,
     SeaweedfsDriver,
@@ -55,6 +57,7 @@ import { NfsDriver } from './drivers/nfs/nfs.driver';
   ],
   exports: [
     StorageAuditService,
+    ConsumerInspectorService,
     NodeExecClient,
     DriverRegistry,
     InstallOrchestratorService,
