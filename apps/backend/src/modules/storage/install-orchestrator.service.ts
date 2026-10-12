@@ -100,9 +100,36 @@ export class InstallOrchestratorService {
     // design doc deliberately resumes at the *next* step, not re-running the
     // last one — most steps aren't idempotent (docker run, systemctl enable).
     const lastAttempted = await this.getLastAttemptedStepId(sessionId);
-    const startIdx = lastAttempted
-      ? plan.steps.findIndex((s) => s.id === lastAttempted) + 1
-      : 0;
+    let startIdx = 0;
+    if (lastAttempted) {
+      const idx = plan.steps.findIndex((s) => s.id === lastAttempted);
+      if (idx < 0) {
+        // D pack #4: resume marker references a step not in the current
+        // plan (plan shape changed between crash and resume, or persistence
+        // was corrupted). Silently resetting to 0 would silently re-run every
+        // non-idempotent step. Terminate instead and surface the drift.
+        this.logger.error(
+          `run(${sessionId}): lastAttemptedStepId=${lastAttempted} not found in current plan ` +
+            `(steps=${plan.steps.map((s) => s.id).join(',')}); refusing to re-run from step 0`,
+        );
+        try {
+          sm.transition('UNINSTALL_FAILED');
+          await this.persistState('INSTALLING', 'UNINSTALL_FAILED');
+        } catch {
+          /* state may already be terminal */
+        }
+        await this.emit({
+          sessionId,
+          phase: 'failed',
+          state: 'UNINSTALL_FAILED',
+          cause: `resume marker drift: step ${lastAttempted} not in plan`,
+          frame: 0,
+          ts: new Date().toISOString(),
+        });
+        return;
+      }
+      startIdx = idx + 1;
+    }
 
     for (let i = startIdx; i < plan.steps.length; i++) {
       const step = plan.steps[i];
@@ -112,7 +139,7 @@ export class InstallOrchestratorService {
       if (result.exitCode !== 0) {
         try {
           sm.transition('UNINSTALL_FAILED');
-          await this.persistState('UNINSTALL_FAILED');
+          await this.persistState('INSTALLING', 'UNINSTALL_FAILED');
         } catch {
           // State already terminal; ignore.
         }
@@ -135,7 +162,7 @@ export class InstallOrchestratorService {
 
     try {
       sm.transition('HEALTHY');
-      await this.persistState('HEALTHY');
+      await this.persistState('INSTALLING', 'HEALTHY');
     } catch (err) {
       this.logger.error(
         `run(${sessionId}): terminal transition failed: ${(err as Error).message}`,
@@ -208,7 +235,7 @@ export class InstallOrchestratorService {
       if (result.exitCode !== 0) {
         try {
           sm.transition('UNINSTALL_FAILED');
-          await this.persistState('UNINSTALL_FAILED');
+          await this.persistState('DRAINING', 'UNINSTALL_FAILED');
         } catch {
           /* already terminal */
         }
@@ -231,7 +258,7 @@ export class InstallOrchestratorService {
 
     try {
       sm.transition('UNINSTALLED');
-      await this.persistState('UNINSTALLED');
+      await this.persistState('DRAINING', 'UNINSTALLED');
     } catch (err) {
       this.logger.error(
         `uninstall(${sessionId}): terminal transition failed: ${(err as Error).message}`,
@@ -314,72 +341,102 @@ export class InstallOrchestratorService {
 
   // ----- state machine helpers -----
 
+  // A pack #2: atomic install acquire.
+  //
+  // Previously this did findById → branch → updateOne, which lets two
+  // concurrent queueInstall POSTs both see state=PENDING and both call
+  // persistState('INSTALLING'); last writer wins but both coroutines run
+  // their plans against the same cluster. The compound-filter
+  // findOneAndUpdate below is a Mongo-level mutex: at most one caller
+  // transitions PENDING/UNINSTALLED → INSTALLING, the loser falls through
+  // to case D (refuse) and run() bails.
+  //
+  // Case A — resume same install session (state=INSTALLING + session match)
+  // Case B — acquire from PENDING or UNINSTALLED (compound-filter update)
+  // Case C — first install ever (atomic create; _id unique index acts as the lock)
+  // Case D — someone else holds the lock → return current state, run() bails
   private async openStateMachine(
     sessionId: string,
     config: SharedStorageConfig,
     initiatedBy: string,
     plan: InstallPlan,
   ): Promise<StorageStateMachine> {
-    const doc = await this.storageModel
-      .findById(InstallOrchestratorService.PRIMARY_ID)
+    // Case A: resume same session.
+    const resumed = await this.storageModel
+      .findOne({
+        _id: InstallOrchestratorService.PRIMARY_ID,
+        state: 'INSTALLING' satisfies StorageState,
+        installSessionId: sessionId,
+      })
       .lean()
       .exec();
-    if (!doc) {
-      // First-ever install. Create the singleton in PENDING, then flip.
+    if (resumed) {
+      return StorageStateMachine.fromPersisted(resumed.state);
+    }
+
+    // Case B: acquire from PENDING or UNINSTALLED atomically. On success
+    // the doc's state is already INSTALLING by the time this returns, and
+    // any concurrent caller finds state=INSTALLING (fails the $in filter)
+    // and falls through to case D.
+    const acquired = await this.storageModel
+      .findOneAndUpdate(
+        {
+          _id: InstallOrchestratorService.PRIMARY_ID,
+          state: { $in: ['PENDING', 'UNINSTALLED'] satisfies StorageState[] },
+        },
+        {
+          $set: {
+            state: 'INSTALLING' satisfies StorageState,
+            installSessionId: sessionId,
+            lastAttemptedStepId: null,
+          },
+        },
+        { new: true },
+      )
+      .lean()
+      .exec();
+    if (acquired) {
+      return new StorageStateMachine('INSTALLING');
+    }
+
+    // Case C: no doc exists. Create atomically — the _id unique index means
+    // two concurrent callers can't both create; the loser catches
+    // E11000 duplicate key and falls through to case D.
+    try {
       await this.storageModel.create({
         _id: InstallOrchestratorService.PRIMARY_ID,
         backend: config.backend,
         driver: config.backend,
         nodes: config.nodes,
         mountPoint: plan.mountPoint,
-        state: 'PENDING' satisfies StorageState,
+        state: 'INSTALLING' satisfies StorageState,
         installSessionId: sessionId,
         driverOpts: plan.driverOpts,
         initiatedBy,
       });
-      const sm = new StorageStateMachine('PENDING');
-      sm.transition('INSTALLING');
-      await this.persistState('INSTALLING', sessionId);
-      return sm;
+      return new StorageStateMachine('INSTALLING');
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      if (code !== 11000) throw err;
+      // Fall through: another create won.
     }
-    // Existing doc: resume if the install session matches, otherwise
-    // refuse. A new install over an existing one must go through uninstall
-    // first — PENDING isn't reachable from HEALTHY/DEGRADED/… in the FSM.
-    if (doc.state === 'UNINSTALLED' || doc.state === 'PENDING') {
-      const sm = StorageStateMachine.fromPersisted(doc.state);
-      // UNINSTALLED → PENDING → INSTALLING. The intermediate PENDING is a
-      // real state (operator can see "install starting over") so we persist
-      // it, but we don't emit between the two: the orchestrator's own
-      // `started` frame carries INSTALLING, which is what SSE clients
-      // actually read.
-      if (sm.current() === 'UNINSTALLED') {
-        sm.transition('PENDING');
-        await this.persistState('PENDING', sessionId);
-      }
-      sm.transition('INSTALLING');
-      // Fresh session: clear the resume marker from a prior run or we'd
-      // skip steps the new plan expects to execute from scratch.
-      await this.resetForNewSession(sessionId);
-      return sm;
-    }
-    if (doc.state === 'INSTALLING' && doc.installSessionId === sessionId) {
-      // Resume same install session.
-      return StorageStateMachine.fromPersisted(doc.state);
-    }
-    // Any other state → return the machine without transitioning. run()
-    // checks current()!=='INSTALLING' and bails.
-    return StorageStateMachine.fromPersisted(doc.state);
+
+    // Case D: refuse. Return the current state so run() can bail.
+    const doc = await this.storageModel
+      .findById(InstallOrchestratorService.PRIMARY_ID)
+      .lean()
+      .exec();
+    return StorageStateMachine.fromPersisted(doc?.state ?? 'PENDING');
   }
 
-  // Mirror of openStateMachine but for the uninstall path. Caller
-  // (StorageService.queueUninstall) has already validated preconditions —
-  // doc exists, state is HEALTHY or DEGRADED, zero consumers. We transition
-  // HEALTHY → DRAINING (or DEGRADED → DRAINING) and persist before any step
-  // runs so a mid-uninstall crash leaves the DB consistent with "we started
-  // tearing down". A stale state (someone kicked another op) returns the
-  // state machine untouched and the caller bails.
+  // Uninstall path verifier. StorageService.queueUninstall is now the
+  // atomic HEALTHY/DEGRADED → DRAINING acquirer (see A pack #11 fix in
+  // storage.service.ts), so by the time this method runs the DRAINING state
+  // is already persisted. We just read + check — no transition. A race (a
+  // reconciler flip, or a competing uninstall) shows up here as current()
+  // != 'DRAINING', and the caller bails without touching state.
   private async openStateMachineForUninstall(
-    sessionId: string,
+    _sessionId: string,
   ): Promise<StorageStateMachine> {
     const doc = await this.storageModel
       .findById(InstallOrchestratorService.PRIMARY_ID)
@@ -390,49 +447,40 @@ export class InstallOrchestratorService {
       // PENDING machine so the caller sees DRAINING-check-failed.
       return new StorageStateMachine('PENDING');
     }
-    const sm = StorageStateMachine.fromPersisted(doc.state);
-    if (sm.current() === 'HEALTHY' || sm.current() === 'DEGRADED') {
-      sm.transition('DRAINING');
-      await this.storageModel
-        .updateOne(
-          { _id: InstallOrchestratorService.PRIMARY_ID },
-          {
-            $set: {
-              state: 'DRAINING' satisfies StorageState,
-              installSessionId: sessionId,
-              lastAttemptedStepId: null,
-            },
-          },
-        )
-        .exec();
-    }
-    return sm;
+    return StorageStateMachine.fromPersisted(doc.state);
   }
 
+  // A pack #1: every state write below carries the expected from-state in
+  // its filter and refuses silently if the DB has moved. Prevents the
+  // reconciler and the orchestrator from clobbering each other's state
+  // writes. Returns true if the write landed, false otherwise — callers
+  // may want to abort further work, but for most sites a logged skip is
+  // enough since the sm in-memory diverges from the DB only until the
+  // request returns.
   private async persistState(
-    state: StorageState,
-    installSessionId?: string,
-  ): Promise<void> {
-    const update: Record<string, unknown> = { state };
-    if (installSessionId !== undefined) update.installSessionId = installSessionId;
-    await this.storageModel
-      .updateOne({ _id: InstallOrchestratorService.PRIMARY_ID }, { $set: update })
-      .exec();
-  }
-
-  private async resetForNewSession(sessionId: string): Promise<void> {
-    await this.storageModel
+    expectedFrom: StorageState | StorageState[],
+    to: StorageState,
+    extras: Record<string, unknown> = {},
+  ): Promise<boolean> {
+    const fromFilter = Array.isArray(expectedFrom)
+      ? { $in: expectedFrom }
+      : expectedFrom;
+    const res = await this.storageModel
       .updateOne(
-        { _id: InstallOrchestratorService.PRIMARY_ID },
         {
-          $set: {
-            state: 'INSTALLING' satisfies StorageState,
-            installSessionId: sessionId,
-            lastAttemptedStepId: null,
-          },
+          _id: InstallOrchestratorService.PRIMARY_ID,
+          state: fromFilter,
         },
+        { $set: { state: to, ...extras } },
       )
       .exec();
+    if ((res.matchedCount ?? 0) === 0) {
+      this.logger.warn(
+        `persistState skipped: expected state=${JSON.stringify(expectedFrom)}, actual has moved (target state=${to})`,
+      );
+      return false;
+    }
+    return true;
   }
 
   private async persistLastAttempted(stepId: string): Promise<void> {

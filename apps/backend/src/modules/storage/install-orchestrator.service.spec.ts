@@ -83,11 +83,32 @@ function tinyPlan(sessionId: string): InstallPlan {
   };
 }
 
+// Lightweight filter matcher — supports top-level equality + {$in: [...]}.
+// _id is implicit (singleton), so the filter's _id key is skipped.
+function filterMatches(
+  doc: Record<string, unknown> | null,
+  filter: Record<string, unknown>,
+): boolean {
+  if (!doc) return false;
+  for (const [k, v] of Object.entries(filter)) {
+    if (k === '_id') continue;
+    if (v !== null && typeof v === 'object' && '$in' in (v as object)) {
+      const allowed = (v as { $in: unknown[] }).$in;
+      if (!allowed.includes(doc[k])) return false;
+    } else if (v !== doc[k]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 describe('InstallOrchestratorService', () => {
   let service: InstallOrchestratorService;
   let emitter: EventEmitter2;
   let frames: StorageInstallStepEvent[];
   let findById: jest.Mock;
+  let findOne: jest.Mock;
+  let findOneAndUpdate: jest.Mock;
   let createDoc: jest.Mock;
   let updateOne: jest.Mock;
   let planFn: jest.Mock;
@@ -95,24 +116,77 @@ describe('InstallOrchestratorService', () => {
   let auditWrite: jest.Mock;
 
   const buildModel = (initial: Record<string, unknown> | null) => {
-    const docState = { current: initial };
+    const docState: { current: Record<string, unknown> | null } = {
+      current: initial,
+    };
     findById = jest.fn(() => ({
       lean: () => ({ exec: () => Promise.resolve(docState.current) }),
     }));
+    findOne = jest.fn((filter: Record<string, unknown>) => ({
+      lean: () => ({
+        exec: () =>
+          Promise.resolve(
+            filterMatches(docState.current, filter) ? docState.current : null,
+          ),
+      }),
+    }));
+    findOneAndUpdate = jest.fn(
+      (
+        filter: Record<string, unknown>,
+        update: { $set?: Record<string, unknown> },
+        options?: { new?: boolean },
+      ) => {
+        const run = () => {
+          if (!filterMatches(docState.current, filter)) {
+            return Promise.resolve(null);
+          }
+          const prev = { ...(docState.current as Record<string, unknown>) };
+          docState.current = { ...prev, ...(update.$set ?? {}) };
+          return Promise.resolve(options?.new ? docState.current : prev);
+        };
+        return { lean: () => ({ exec: run }), exec: run };
+      },
+    );
+    // A pack #2: Case C path. The real _id unique index raises E11000 on
+    // a second create — this stub mirrors that so Case C → Case D
+    // fall-through is exercised in tests.
     createDoc = jest.fn((doc) => {
+      if (docState.current) {
+        const err: Error & { code?: number } = new Error('E11000 duplicate key');
+        err.code = 11000;
+        throw err;
+      }
       docState.current = { ...doc };
       return Promise.resolve(doc);
     });
-    updateOne = jest.fn((_filter, update) => ({
-      exec: () => {
-        const set = update.$set ?? {};
-        docState.current = { ...(docState.current ?? {}), ...set };
-        return Promise.resolve({ acknowledged: true });
-      },
-    }));
+    updateOne = jest.fn(
+      (
+        filter: Record<string, unknown>,
+        update: { $set?: Record<string, unknown> },
+      ) => ({
+        exec: () => {
+          if (!filterMatches(docState.current, filter)) {
+            return Promise.resolve({
+              acknowledged: true,
+              matchedCount: 0,
+              modifiedCount: 0,
+            });
+          }
+          docState.current = {
+            ...(docState.current as Record<string, unknown>),
+            ...(update.$set ?? {}),
+          };
+          return Promise.resolve({
+            acknowledged: true,
+            matchedCount: 1,
+            modifiedCount: 1,
+          });
+        },
+      }),
+    );
     return {
       storeRef: docState,
-      model: { findById, create: createDoc, updateOne },
+      model: { findById, findOne, findOneAndUpdate, create: createDoc, updateOne },
     };
   };
 
@@ -284,6 +358,40 @@ describe('InstallOrchestratorService', () => {
       ]);
     });
 
+    it('D pack #4: resume marker drift (lastAttemptedStepId not in current plan) fails fast instead of restarting from step 0', async () => {
+      // Previously `plan.steps.findIndex(id==lastAttempted) + 1` returned
+      // -1 + 1 = 0 when the marker was stale, silently re-running every
+      // non-idempotent step. The fix detects findIndex=-1 and terminates
+      // with UNINSTALL_FAILED + a `failed` frame naming the drift.
+      const plan = tinyPlan('sess-drift');
+      const { storeRef } = await build(
+        {
+          _id: 'primary',
+          backend: 'seaweedfs',
+          driver: 'seaweedfs',
+          nodes: ['node02', 'node03'],
+          mountPoint: '/var/lib/swarmui/shared',
+          state: 'INSTALLING',
+          installSessionId: 'sess-drift',
+          lastAttemptedStepId: 's99-step-renamed-away', // not in tinyPlan
+        },
+        plan,
+        [], // no step responses — if any step runs, send() returns undefined and the test fails loudly
+      );
+      await service.run('sess-drift', CFG, 'u1');
+      // No step was executed.
+      expect(sendFn).not.toHaveBeenCalled();
+      // State flipped to UNINSTALL_FAILED (not stuck in INSTALLING).
+      expect((storeRef.current as { state: string }).state).toBe(
+        'UNINSTALL_FAILED',
+      );
+      // A failed frame explains the drift.
+      const failed = frames[frames.length - 1];
+      expect(failed.phase).toBe('failed');
+      expect(failed.state).toBe('UNINSTALL_FAILED');
+      expect(failed.cause).toContain('resume marker drift');
+    });
+
     it('restarts from step 0 when installSessionId differs', async () => {
       const plan = tinyPlan('sess-5-new');
       await build(
@@ -306,6 +414,53 @@ describe('InstallOrchestratorService', () => {
       );
       await service.run('sess-5-new', CFG, 'u1');
       expect(sendFn).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('concurrent install (A pack #2)', () => {
+    it('a second run() with the same initial state=PENDING cannot re-acquire INSTALLING', async () => {
+      // Two concurrent queueInstall POSTs: both drivers.plan() succeed,
+      // both call orchestrator.run with different session ids. The
+      // compound-filter findOneAndUpdate acquire must let exactly one
+      // win; the loser falls through to Case D (findById) and run() bails
+      // without executing any step.
+      const plan1 = tinyPlan('sess-win');
+      const plan2 = tinyPlan('sess-lose');
+      await build(
+        {
+          _id: 'primary',
+          backend: 'seaweedfs',
+          driver: 'seaweedfs',
+          nodes: ['node02', 'node03'],
+          mountPoint: '/var/lib/swarmui/shared',
+          state: 'PENDING',
+          installSessionId: 'sess-prev',
+        },
+        plan1,
+        [
+          okResult('node02', 'mkdir-swarmui-shared-root'),
+          okResult('node02', 'docker-pull-seaweedfs'),
+          okResult('node02', 'docker-run-seaweedfs-master'),
+        ],
+      );
+      // First run wins, acquires INSTALLING, runs plan to HEALTHY.
+      await service.run('sess-win', CFG, 'u1');
+      expect(frames.filter((f) => f.phase === 'done')).toHaveLength(1);
+      const sendCountAfterFirst = sendFn.mock.calls.length;
+
+      // Second run tries to acquire but state is now HEALTHY (post first
+      // run). findOne match fails (session mismatch), findOneAndUpdate
+      // filter fails (HEALTHY not in {PENDING,UNINSTALLED}), create throws
+      // E11000, findById returns HEALTHY — run() sees current!=INSTALLING
+      // and bails without executing any step.
+      planFn.mockImplementation(() => plan2);
+      frames.length = 0;
+      await service.run('sess-lose', CFG, 'u2');
+      // No steps executed on the second run.
+      expect(sendFn.mock.calls.length).toBe(sendCountAfterFirst);
+      // No `started` or `done` from the second run.
+      expect(frames.filter((f) => f.phase === 'started')).toHaveLength(0);
+      expect(frames.filter((f) => f.phase === 'done')).toHaveLength(0);
     });
   });
 
@@ -381,7 +536,11 @@ describe('InstallOrchestratorService', () => {
   }
 
   describe('uninstall happy path', () => {
-    it('walks every step, transitions HEALTHY → DRAINING → UNINSTALLED, emits done', async () => {
+    it('walks every step, transitions DRAINING → UNINSTALLED, emits done', async () => {
+      // A pack #11: StorageService.queueUninstall is now the atomic
+      // HEALTHY/DEGRADED → DRAINING acquirer. By the time the orchestrator's
+      // uninstall() runs the doc is already in DRAINING; the orchestrator
+      // only drives DRAINING → UNINSTALLED (or UNINSTALL_FAILED on error).
       const { storeRef } = await build(
         {
           _id: 'primary',
@@ -389,8 +548,8 @@ describe('InstallOrchestratorService', () => {
           driver: 'seaweedfs',
           nodes: ['node02'],
           mountPoint: '/var/lib/swarmui/shared',
-          state: 'HEALTHY',
-          installSessionId: 'sess-prev-install',
+          state: 'DRAINING',
+          installSessionId: 'sess-un-1',
         },
         tinyPlan('ignored'), // install plan — not touched by uninstall
         [
@@ -424,8 +583,8 @@ describe('InstallOrchestratorService', () => {
           driver: 'seaweedfs',
           nodes: ['node02'],
           mountPoint: '/var/lib/swarmui/shared',
-          state: 'HEALTHY',
-          installSessionId: 'sess-prev',
+          state: 'DRAINING',
+          installSessionId: 'sess-un-2',
         },
         tinyPlan('ignored'),
         [failResult('node02', 'systemctl-enable-seaweedfs-mount', 'unit not found')],

@@ -148,14 +148,25 @@ export class StorageReconcilerService {
       );
       return;
     }
-    await this.storageModel
+    // A pack #1: compound filter prevents the reconciler from clobbering an
+    // orchestrator-driven transition (INSTALLING, DRAINING, UNINSTALLED,
+    // etc.) that landed in the DB between our tick's findById at the top
+    // of this function and this write. If matchedCount===0 the state has
+    // moved; emit no event and leave the record alone.
+    const res = await this.storageModel
       .updateOne(
-        { _id: StorageReconcilerService.PRIMARY_ID },
+        { _id: StorageReconcilerService.PRIMARY_ID, state: from },
         {
           $set: { state: to, lastHealthCheckAt: new Date() },
         },
       )
       .exec();
+    if ((res.matchedCount ?? 0) === 0) {
+      this.logger.warn(
+        `reconciler state transition skipped: expected state=${from}, orchestrator or operator moved it; no event emitted`,
+      );
+      return;
+    }
     const event: StorageStateTransitionEvent = {
       from,
       to,

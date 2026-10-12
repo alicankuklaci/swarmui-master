@@ -22,6 +22,99 @@ import { StorageAuditLog } from './schemas/storage-audit.schema';
 // keeps the DI graph satisfied without needing a dockerode fixture.
 const inspectorStub = { enumerateConsumers: jest.fn().mockResolvedValue([]) };
 
+// Lightweight filter matcher — supports top-level equality + {$in: [...]}.
+// _id treated as implicit (we address a singleton), so the filter's _id key
+// is skipped.
+function filterMatches(
+  doc: Record<string, unknown> | null,
+  filter: Record<string, unknown>,
+): boolean {
+  if (!doc) return false;
+  for (const [k, v] of Object.entries(filter)) {
+    if (k === '_id') continue;
+    if (v !== null && typeof v === 'object' && '$in' in (v as object)) {
+      const allowed = (v as { $in: unknown[] }).$in;
+      if (!allowed.includes(doc[k])) return false;
+    } else if (v !== doc[k]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Shared Mongoose stub honouring the subset of operations the orchestrator
+// uses: findById, findOne, findOneAndUpdate (A pack #2 atomic acquire),
+// updateOne (filter-aware for A pack #1 compound-filter writes), and
+// create (E11000 on duplicate to exercise Case C → Case D fallthrough).
+function buildFilterAwareModel(docStore: {
+  current: Record<string, unknown> | null;
+}) {
+  return {
+    findById: jest.fn(() => ({
+      lean: () => ({ exec: () => Promise.resolve(docStore.current) }),
+    })),
+    findOne: jest.fn((filter: Record<string, unknown>) => ({
+      lean: () => ({
+        exec: () =>
+          Promise.resolve(
+            filterMatches(docStore.current, filter) ? docStore.current : null,
+          ),
+      }),
+    })),
+    findOneAndUpdate: jest.fn(
+      (
+        filter: Record<string, unknown>,
+        update: { $set?: Record<string, unknown> },
+        options?: { new?: boolean },
+      ) => {
+        const run = () => {
+          if (!filterMatches(docStore.current, filter)) {
+            return Promise.resolve(null);
+          }
+          const prev = { ...(docStore.current as Record<string, unknown>) };
+          docStore.current = { ...prev, ...(update.$set ?? {}) };
+          return Promise.resolve(options?.new ? docStore.current : prev);
+        };
+        return { lean: () => ({ exec: run }), exec: run };
+      },
+    ),
+    create: jest.fn((doc: Record<string, unknown>) => {
+      if (docStore.current) {
+        const err: Error & { code?: number } = new Error('E11000 duplicate key');
+        err.code = 11000;
+        throw err;
+      }
+      docStore.current = { ...doc };
+      return Promise.resolve(doc);
+    }),
+    updateOne: jest.fn(
+      (
+        filter: Record<string, unknown>,
+        update: { $set?: Record<string, unknown> },
+      ) => ({
+        exec: () => {
+          if (!filterMatches(docStore.current, filter)) {
+            return Promise.resolve({
+              acknowledged: true,
+              matchedCount: 0,
+              modifiedCount: 0,
+            });
+          }
+          docStore.current = {
+            ...(docStore.current as Record<string, unknown>),
+            ...(update.$set ?? {}),
+          };
+          return Promise.resolve({
+            acknowledged: true,
+            matchedCount: 1,
+            modifiedCount: 1,
+          });
+        },
+      }),
+    ),
+  };
+}
+
 // End-to-end install over a live swarm-agent process. The orchestrator, the
 // SeaweedFS driver, the HMAC client, and the agent dispatcher all run as
 // their production code — only the Mongo models and the audit file sink are
@@ -48,24 +141,10 @@ describe('Install integration — orchestrator ↔ swarm-agent', () => {
     });
 
     // In-memory SharedStorage singleton. Mirrors just enough of Mongoose for
-    // the orchestrator's findById / create / updateOne.
+    // the orchestrator's findById / findOne / findOneAndUpdate / create /
+    // updateOne (A pack #2 added the atomic acquire paths).
     docStore = { current: null };
-    const sharedStorageModel = {
-      findById: jest.fn(() => ({
-        lean: () => ({ exec: () => Promise.resolve(docStore.current) }),
-      })),
-      create: jest.fn((doc: Record<string, unknown>) => {
-        docStore.current = { ...doc };
-        return Promise.resolve(doc);
-      }),
-      updateOne: jest.fn((_filter, update: { $set?: Record<string, unknown> }) => ({
-        exec: () => {
-          const set = update.$set ?? {};
-          docStore.current = { ...(docStore.current ?? {}), ...set };
-          return Promise.resolve({ acknowledged: true });
-        },
-      })),
-    };
+    const sharedStorageModel = buildFilterAwareModel(docStore);
 
     mongoAudit = jest.fn().mockResolvedValue({ _id: 'x' });
 
@@ -150,21 +229,7 @@ describe('Install integration — orchestrator ↔ swarm-agent', () => {
     // Build the module again but with a client whose secret differs from
     // the agent's; every request will hmac-reject at the agent.
     const docStoreLocal = { current: null as Record<string, unknown> | null };
-    const sharedStorageModel = {
-      findById: jest.fn(() => ({
-        lean: () => ({ exec: () => Promise.resolve(docStoreLocal.current) }),
-      })),
-      create: jest.fn((doc: Record<string, unknown>) => {
-        docStoreLocal.current = { ...doc };
-        return Promise.resolve(doc);
-      }),
-      updateOne: jest.fn((_f, u: { $set?: Record<string, unknown> }) => ({
-        exec: () => {
-          docStoreLocal.current = { ...(docStoreLocal.current ?? {}), ...(u.$set ?? {}) };
-          return Promise.resolve({ acknowledged: true });
-        },
-      })),
-    };
+    const sharedStorageModel = buildFilterAwareModel(docStoreLocal);
     const mod = await Test.createTestingModule({
       imports: [ConfigModule.forRoot({ ignoreEnvFile: true, isGlobal: true })],
       providers: [

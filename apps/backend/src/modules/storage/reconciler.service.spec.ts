@@ -32,6 +32,12 @@ describe('StorageReconcilerService', () => {
     probeHealth,
   });
 
+  // A pack #1: the mock must honor the state filter so matchedCount=0
+  // branches run. By default the current `findById` doc's state satisfies
+  // the filter; tests that want to simulate a concurrent transition set
+  // `concurrentState` so the next updateOne call sees a different state.
+  let concurrentState: string | undefined;
+
   let service: StorageReconcilerService;
   let emitter: EventEmitter2;
   let driftFrames: StorageConsumerDriftEvent[];
@@ -39,9 +45,33 @@ describe('StorageReconcilerService', () => {
 
   beforeEach(async () => {
     findById.mockReset();
-    updateOne.mockReset().mockReturnValue({
-      exec: () => Promise.resolve({ acknowledged: true }),
-    });
+    concurrentState = undefined;
+    updateOne.mockReset().mockImplementation(
+      (filter: Record<string, unknown>) => ({
+        exec: async () => {
+          // persistSnapshot uses {_id} only — always matches.
+          if (!('state' in filter)) {
+            return { acknowledged: true, matchedCount: 1, modifiedCount: 1 };
+          }
+          // applyHealthTransition uses {_id, state: from}. Resolve the
+          // actual DB state: either the test overrode via `concurrentState`
+          // (to simulate someone else transitioning between findById and
+          // the state write), or the last findById result's state.
+          let actualState: unknown = concurrentState;
+          if (actualState === undefined) {
+            const lastFindResult = findById.mock.results.at(-1)?.value;
+            const doc = (await Promise.resolve(lastFindResult)) as
+              | Record<string, unknown>
+              | null;
+            actualState = doc?.state;
+          }
+          if (actualState !== filter.state) {
+            return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
+          }
+          return { acknowledged: true, matchedCount: 1, modifiedCount: 1 };
+        },
+      }),
+    );
     enumerateConsumers.mockClear();
     probeHealth.mockReset().mockResolvedValue({ ok: true });
     driverRegistryGet.mockClear();
@@ -355,6 +385,30 @@ describe('StorageReconcilerService', () => {
       expect(transitionFrames[0].to).toBe('DEGRADED');
       expect(transitionFrames[0].cause).toContain('probe error');
       expect(transitionFrames[0].cause).toContain('self-signed cert');
+    });
+
+    it('A pack #1: skips the state write when the DB has moved between findById and update (matchedCount=0)', async () => {
+      // Simulate the race: reconciler reads HEALTHY, probe fails, decides
+      // HEALTHY→DEGRADED. Between findById and updateOne the orchestrator
+      // started an uninstall and persisted DRAINING. The compound filter
+      // {_id, state:'HEALTHY'} must miss (matchedCount=0), the reconciler
+      // must NOT emit a storage.state.transition event and must NOT
+      // overwrite DRAINING with DEGRADED.
+      findById.mockResolvedValue({
+        backend: 'seaweedfs',
+        state: 'HEALTHY',
+        mountPoint: '/var/lib/swarmui/shared',
+        nodes: ['n02'],
+        lastKnownConsumers: [],
+      });
+      enumerateConsumers.mockResolvedValueOnce([]);
+      probeHealth.mockResolvedValueOnce({ ok: false, cause: 'filer 503' });
+      // Someone transitioned to DRAINING between the reconciler's read
+      // and its write.
+      concurrentState = 'DRAINING';
+      await service.tick();
+      // No transition event (write lost the race) and no state corruption.
+      expect(transitionFrames).toHaveLength(0);
     });
 
     it('insecure flag from driverOpts flows into the probeHealth config', async () => {
