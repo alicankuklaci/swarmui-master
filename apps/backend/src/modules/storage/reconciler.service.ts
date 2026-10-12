@@ -5,13 +5,18 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
   STORAGE_CONSUMER_DRIFT_EVENT,
+  STORAGE_STATE_TRANSITION_EVENT,
+  type SharedStorageConfig,
   type StorageConsumerDriftEvent,
+  type StorageState,
+  type StorageStateTransitionEvent,
 } from '@swarmui-master/storage-plan';
 import {
   SharedStorage,
   SharedStorageDocument,
 } from './schemas/shared-storage.schema';
 import { DriverRegistry } from './drivers/driver.registry';
+import { StorageStateMachine } from './state-machine';
 
 // Reconciler (Sprint 1 seam → Sprint 4 D3 drift detection).
 //
@@ -57,7 +62,7 @@ export class StorageReconcilerService {
     }
   }
 
-  // Exposed for tests and for the S5 implementation to call directly.
+  // Exposed for tests and for direct invocation.
   async tick(): Promise<void> {
     const doc = await this.storageModel
       .findById(StorageReconcilerService.PRIMARY_ID)
@@ -67,26 +72,100 @@ export class StorageReconcilerService {
       this.logger.debug('no shared-storage install; skipping');
       return;
     }
-    if (doc.state !== 'HEALTHY') {
-      this.logger.debug(`state=${doc.state}; S5 will drive recovery`);
+    // States under the reconciler's remit: HEALTHY (drift + probe),
+    // DEGRADED + RECOVERING (probe-driven recovery). Everything else
+    // (PENDING, INSTALLING, DRAINING, UNINSTALLED, UNINSTALL_FAILED,
+    // ADOPTING) belongs to the orchestrator / operator, so a stale
+    // tick must leave those alone.
+    if (
+      doc.state !== 'HEALTHY' &&
+      doc.state !== 'DEGRADED' &&
+      doc.state !== 'RECOVERING'
+    ) {
+      this.logger.debug(`state=${doc.state}; reconciler skipping`);
       return;
     }
 
     const driver = this.drivers.get(doc.backend);
-    const current = normalizeSet(
-      await driver.enumerateConsumers(doc.mountPoint),
-    );
-    this.logger.log(
-      `reconcile tick: backend=${doc.backend} consumers=${current.length}`,
-    );
+    const config = reconstructConfig(doc);
 
-    const previous: string[] | undefined = Array.isArray(doc.lastKnownConsumers)
-      ? [...doc.lastKnownConsumers].sort()
-      : undefined;
+    // Health probe always runs — drives the state machine on every tick.
+    const verdict = await this.safeProbe(driver, config);
 
-    if (!setsEqual(previous, current)) {
-      await this.handleDrift(doc.mountPoint, previous, current);
+    // Drift detection only runs in HEALTHY. In DEGRADED/RECOVERING the
+    // consumer list is suspect (a mount client that lost the filer may
+    // vanish from the swarm's view while the service spec stands) and
+    // persisting a snapshot built on half-truth would mask the recovery.
+    if (doc.state === 'HEALTHY') {
+      const current = normalizeSet(
+        await driver.enumerateConsumers(doc.mountPoint),
+      );
+      this.logger.log(
+        `reconcile tick: backend=${doc.backend} consumers=${current.length}`,
+      );
+      const previous: string[] | undefined = Array.isArray(doc.lastKnownConsumers)
+        ? [...doc.lastKnownConsumers].sort()
+        : undefined;
+      if (!setsEqual(previous, current)) {
+        await this.handleDrift(doc.mountPoint, previous, current);
+      }
     }
+
+    await this.applyHealthTransition(doc.state, verdict);
+  }
+
+  // Probe wrapper that turns a throw into an ok=false verdict. The
+  // state machine should drive on the probe's *answer*, not on whether
+  // the probe itself crashed — a crash is just "unknown health", which
+  // we treat like a failed probe for v1.
+  private async safeProbe(
+    driver: ReturnType<DriverRegistry['get']>,
+    config: SharedStorageConfig,
+  ): Promise<{ ok: boolean; cause?: string }> {
+    try {
+      return await driver.probeHealth(config);
+    } catch (err) {
+      const cause = (err as Error).message?.slice(0, 200) ?? 'probe threw';
+      this.logger.warn(`probeHealth threw: ${cause}`);
+      return { ok: false, cause: `probe error: ${cause}` };
+    }
+  }
+
+  private async applyHealthTransition(
+    from: StorageState,
+    verdict: { ok: boolean; cause?: string },
+  ): Promise<void> {
+    const to = nextStateForVerdict(from, verdict.ok);
+    if (to === undefined || to === from) return;
+    // Use the state machine to validate the transition — a direct persist
+    // without this would let a bug here corrupt the state.
+    const sm = new StorageStateMachine(from);
+    try {
+      sm.transition(to);
+    } catch (err) {
+      this.logger.error(
+        `illegal transition in reconciler: ${from} → ${to}: ${(err as Error).message}`,
+      );
+      return;
+    }
+    await this.storageModel
+      .updateOne(
+        { _id: StorageReconcilerService.PRIMARY_ID },
+        {
+          $set: { state: to, lastHealthCheckAt: new Date() },
+        },
+      )
+      .exec();
+    const event: StorageStateTransitionEvent = {
+      from,
+      to,
+      cause: verdict.ok ? undefined : verdict.cause,
+      ts: new Date().toISOString(),
+    };
+    this.emitter.emit(STORAGE_STATE_TRANSITION_EVENT, event);
+    this.logger.log(
+      `state transition ${from} → ${to}${verdict.cause ? ': ' + verdict.cause : ''}`,
+    );
   }
 
   private async handleDrift(
@@ -153,4 +232,44 @@ function setsEqual(a: string[] | undefined, b: string[]): boolean {
     if (a[i] !== b[i]) return false;
   }
   return true;
+}
+
+// Reconstructs the SharedStorageConfig the driver needs for probeHealth.
+// We don't persist the full install dto; nodes + backend + mountPoint land
+// on the top-level fields, and `insecure` is stashed in driverOpts by the
+// install plan — see seaweedfs.driver.ts §driverOpts. If the install
+// predates driverOpts.insecure (test fixtures), probe defaults to secure.
+function reconstructConfig(doc: {
+  backend: SharedStorageConfig['backend'];
+  nodes: string[];
+  mountPoint: string;
+  driverOpts?: Record<string, unknown>;
+}): SharedStorageConfig {
+  const insecure = Boolean(
+    (doc.driverOpts as { insecure?: unknown })?.insecure,
+  );
+  return {
+    backend: doc.backend,
+    nodes: doc.nodes,
+    mountPoint: doc.mountPoint,
+    insecure,
+  };
+}
+
+// Flap-resistant two-tick recovery:
+//   HEALTHY     + probe ok  → stay
+//   HEALTHY     + probe bad → DEGRADED
+//   DEGRADED    + probe ok  → RECOVERING   (don't flip straight back)
+//   DEGRADED    + probe bad → stay
+//   RECOVERING  + probe ok  → HEALTHY
+//   RECOVERING  + probe bad → DEGRADED
+// undefined → no transition.
+export function nextStateForVerdict(
+  from: StorageState,
+  ok: boolean,
+): StorageState | undefined {
+  if (from === 'HEALTHY') return ok ? undefined : 'DEGRADED';
+  if (from === 'DEGRADED') return ok ? 'RECOVERING' : undefined;
+  if (from === 'RECOVERING') return ok ? 'HEALTHY' : 'DEGRADED';
+  return undefined;
 }

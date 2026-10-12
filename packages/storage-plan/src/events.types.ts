@@ -49,3 +49,20 @@ export interface StorageConsumerDriftEvent {
   removed: string[];
   ts: string;
 }
+
+// Emitted by the reconciler when a probeHealth verdict drives a HEALTHY ↔
+// DEGRADED ↔ RECOVERING state transition. Not part of the install SSE
+// stream — alerting / dashboarding path consumes this separately. `cause`
+// is non-empty when the transition landed in a non-HEALTHY state and
+// carries the short probe diagnostic.
+export const STORAGE_STATE_TRANSITION_EVENT =
+  'storage.state.transition' as const;
+export type StorageStateTransitionEventName =
+  typeof STORAGE_STATE_TRANSITION_EVENT;
+
+export interface StorageStateTransitionEvent {
+  from: StorageState;
+  to: StorageState;
+  cause?: string;
+  ts: string;
+}
