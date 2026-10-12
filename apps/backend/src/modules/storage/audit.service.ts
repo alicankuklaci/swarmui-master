@@ -52,9 +52,16 @@ export class StorageAuditService {
     if (this.fileEnabled) this.ensureAuditDir();
   }
 
-  // Both sinks are best-effort individually, but the method succeeds as long as
-  // *either* lands. Mongo-only is OK during development; file-only is the whole
-  // point of the mirror (the Mongo this module protects may be unreachable).
+  // Fail-closed audit (B pack #3). Previously `file` resolved to a bare
+  // `true` when STORAGE_AUDIT_FILE_MIRROR=false, which made `fileOk` always
+  // truthy and let a silent Mongo failure drop an audit entry on the
+  // floor. Now:
+  //   - file-mirror ENABLED (default): either sink succeeding is enough;
+  //     the mirror exists so an unreachable Mongo doesn't lose the trail,
+  //     and a chmod'd audit dir doesn't block a working Mongo.
+  //   - file-mirror DISABLED (operator opted in to single-sink): Mongo is
+  //     the only sink, so a Mongo failure must surface. Silent loss here
+  //     is exactly what an attacker scrubbing the trail would want.
   async write(input: AuditWriteInput): Promise<void> {
     const { s, truncated } = safeStringify(input.args);
     const argsForEntry = truncated
@@ -79,16 +86,26 @@ export class StorageAuditService {
       this.logger.error(`audit mongo write failed: ${err?.message || err}`);
       return false as const;
     });
-    const file = this.fileEnabled
-      ? this.writeFile(entry).catch((err) => {
-          this.logger.error(`audit file write failed: ${err?.message || err}`);
-          return false as const;
-        })
-      : Promise.resolve(true);
+
+    if (!this.fileEnabled) {
+      // Single-sink mode. Mongo failure is the terminal signal.
+      const mongoOk = await mongo;
+      if (mongoOk === false) {
+        throw new Error(
+          'storage audit: Mongo write failed and file-mirror is disabled (STORAGE_AUDIT_FILE_MIRROR=false)',
+        );
+      }
+      return;
+    }
+
+    const file = this.writeFile(entry).catch((err) => {
+      this.logger.error(`audit file write failed: ${err?.message || err}`);
+      return false as const;
+    });
 
     const [mongoOk, fileOk] = await Promise.all([mongo, file]);
     if (mongoOk === false && fileOk === false) {
-      // Rare: both sinks failed. Surface so the caller can abort the install.
+      // Both sinks failed. Surface so the caller can abort the install.
       throw new Error('storage audit: both Mongo and file-mirror writes failed');
     }
   }

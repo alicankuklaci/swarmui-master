@@ -181,4 +181,23 @@ describe('StorageAuditService', () => {
     expect(mongoCreate).toHaveBeenCalledTimes(1);
     expect(appendFileSpy).not.toHaveBeenCalled();
   });
+
+  it('B pack #3: throws when Mongo fails and file-mirror is disabled (fail-closed)', async () => {
+    // Previously `file` resolved to a bare `true` when FILE_MIRROR=false,
+    // which made `fileOk` always truthy and let a Mongo failure drop the
+    // audit entry silently. In single-sink mode Mongo *is* the audit, so
+    // its failure must terminate the install step — otherwise an attacker
+    // scrubbing the trail just needs to flip the env var.
+    const mod = await buildModule('false');
+    const svc = mod.get(StorageAuditService);
+    mongoCreate.mockRejectedValueOnce(new Error('MongoNotConnected'));
+    await expect(
+      svc.write({
+        userId: 'u1',
+        installSessionId: 's1',
+        result: baseResult,
+        args: { foo: 'bar' },
+      }),
+    ).rejects.toThrow(/Mongo write failed/);
+  });
 });
