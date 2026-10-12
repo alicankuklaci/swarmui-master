@@ -18,6 +18,7 @@ import { ContainerDetailPage } from '@/pages/ContainerDetailPage';
 import { ImagesPage } from '@/pages/ImagesPage';
 import { NetworksPage } from '@/pages/NetworksPage';
 import { VolumesPage } from '@/pages/VolumesPage';
+import { SharedStoragePage } from '@/pages/SharedStoragePage';
 import AuditLogPage from '@/pages/AuditLogPage';
 import { ClusterVisualizerPage } from './pages/ClusterVisualizerPage';
 import { SwarmPage } from '@/pages/SwarmPage';
@@ -142,6 +143,7 @@ export default function App() {
                 <Route path="images" element={<ImagesPage />} />
                 <Route path="networks" element={<NetworksPage />} />
                 <Route path="volumes" element={<VolumesPage />} />
+                <Route path="shared-storage" element={<SharedStoragePage />} />
                 {/* Workloads */}
                 <Route path="services" element={<ServicesPage />} />
                 <Route path="services/:id" element={<ServiceDetailPage />} />

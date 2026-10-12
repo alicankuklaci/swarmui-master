@@ -48,6 +48,7 @@ const navSections = [
       { to: '/images', icon: Image, labelKey: 'nav.images' },
       { to: '/networks', icon: Network, labelKey: 'nav.networks' },
       { to: '/volumes', icon: HardDrive, labelKey: 'nav.volumes' },
+      { to: '/shared-storage', icon: HardDriveDownload, labelKey: 'nav.sharedStorage', defaultLabel: 'Shared Storage' },
     ],
   },
   {
