@@ -123,7 +123,12 @@ export class SeaweedfsDriver implements IStorageDriver {
         image: SW_IMAGE,
         port: SW_MASTER_PORT,
         defaultReplication: replication,
-        tls: !insecure,
+        // C pack #10: don't pass `tls` here — the docker-run handlers
+        // don't consume it, so including it in the audit trail suggests
+        // a wiring that doesn't exist. The TLS flags on the actual
+        // weed-master/volume/filer processes are a Sprint 8 follow-up
+        // (needs cert volume mounts + container flag plumbing). The
+        // `seaweedfs-tls-bootstrap` step above is the real signal.
       },
     });
 
@@ -140,7 +145,6 @@ export class SeaweedfsDriver implements IStorageDriver {
           master: `${master}:${SW_MASTER_PORT}`,
           dataCenter: 'swarm',
           rack: node, // one rack per node → replication=010 means "another node"
-          tls: !insecure,
         },
       });
     }
@@ -156,7 +160,6 @@ export class SeaweedfsDriver implements IStorageDriver {
         port: SW_FILER_PORT,
         grpcPort: SW_FILER_GRPC_PORT,
         master: `${master}:${SW_MASTER_PORT}`,
-        tls: !insecure,
       },
     });
 

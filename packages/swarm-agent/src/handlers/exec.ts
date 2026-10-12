@@ -163,10 +163,26 @@ export const defaultExec: Exec = (argv, opts = {}) => {
       });
     });
 
-    if (opts.stdin !== undefined) {
-      child.stdin.end(opts.stdin);
-    } else {
-      child.stdin.end();
+    // C pack #6: a child that dies before we finish writing its stdin
+    // (`tee /etc/no-such-dir`, `true` with a long payload, etc.) can
+    // either (a) emit an EPIPE error on child.stdin asynchronously or
+    // (b) throw synchronously from .end() with ERR_STREAM_DESTROYED. The
+    // 'error' listener covers (a); the try/catch covers (b). Without
+    // either, Node treats it as an unhandled error and kills the agent
+    // — a single bad step would take down the worker. The child's exit
+    // code is still captured via the normal 'close' path below.
+    child.stdin.on('error', () => {
+      /* child closed stdin first; exit-code path reports the real failure */
+    });
+
+    try {
+      if (opts.stdin !== undefined) {
+        child.stdin.end(opts.stdin);
+      } else {
+        child.stdin.end();
+      }
+    } catch {
+      /* synchronous ERR_STREAM_DESTROYED; close event will still fire */
     }
   });
 };

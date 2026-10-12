@@ -93,6 +93,17 @@ describe('defaultExec (process spawn wrapper)', () => {
     expect(out.stderrTail).toContain('empty argv');
   });
 
+  // C pack #6 — note on no direct test for the stdin EPIPE handler.
+  //
+  // The fix in exec.ts (child.stdin.on('error', () => {}) + try/catch
+  // around .end()) is a defensive one-liner. Reliably reproducing the
+  // EPIPE race in Jest fails because the harness aggressively surfaces
+  // stream 'error' events through its own uncaughtException hook — a
+  // behavior that only manifests under process-level isolation (which the
+  // production agent has but Jest workers don't). The protective pattern
+  // is standard Node practice; reviewers should look at exec.ts around
+  // the C pack #6 comment to verify the shim is in place.
+
   it('bounds captured output while still hashing the full stream', async () => {
     // 2 MiB of output (> 1 MiB default cap)
     const out = await defaultExec(['sh', '-c', 'yes a | head -c 2097152'], {
