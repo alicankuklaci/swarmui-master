@@ -8,6 +8,12 @@ import {
   dockerRunMasterHandler,
   dockerRunVolumeHandler,
 } from './docker';
+import {
+  installSeaweedfsMountSystemdUnitHandler,
+  systemctlEnableHandler,
+  tlsBootstrapNoopHandler,
+} from './systemd';
+import { firewallAllowPortsHandler } from './firewall';
 import { defaultExec, type Exec } from './exec';
 import type { HandlerMap } from './types';
 
@@ -37,6 +43,21 @@ export function realHandlerMap(exec: Exec = defaultExec): HandlerMap {
   map['docker-run-seaweedfs-master'] = dockerRunMasterHandler(exec);
   map['docker-run-seaweedfs-volume'] = dockerRunVolumeHandler(exec);
   map['docker-run-seaweedfs-filer'] = dockerRunFilerHandler(exec);
-  // D3+: systemd, firewall, nfs-export, mount-nfs, fstab, healthcheck, tls
+  // D3 implemented
+  map['install-seaweedfs-mount-systemd-unit'] =
+    installSeaweedfsMountSystemdUnitHandler(exec);
+  map['systemctl-enable-seaweedfs-mount'] = systemctlEnableHandler(
+    'seaweedfs-mount.service',
+    exec,
+  );
+  map['systemctl-enable-nfs-server'] = systemctlEnableHandler(
+    'nfs-server.service',
+    exec,
+  );
+  map['firewall-allow-seaweedfs-ports'] = firewallAllowPortsHandler(exec);
+  // TLS bootstrap: v1 insecure=true only. The handler is a documented no-op
+  // until Sprint 7 wires a real cluster-CA — see tlsBootstrapNoopHandler.
+  map['seaweedfs-tls-bootstrap'] = tlsBootstrapNoopHandler(exec);
+  // D4+: nfs-export, mount-nfs, fstab, healthcheck
   return map;
 }

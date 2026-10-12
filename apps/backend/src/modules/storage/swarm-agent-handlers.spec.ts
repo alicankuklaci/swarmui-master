@@ -5,10 +5,16 @@ import {
   dockerRunFilerHandler,
   dockerRunMasterHandler,
   dockerRunVolumeHandler,
+  firewallAllowPortsHandler,
+  installSeaweedfsMountSystemdUnitHandler,
   mkdirSharedRootHandler,
   realHandlerMap,
+  renderSeaweedfsMountUnit,
   SEAWEEDFS_CONTAINER_NAMES,
+  SEAWEEDFS_MOUNT_UNIT_PATH,
+  systemctlEnableHandler,
   testMountWriteHandler,
+  tlsBootstrapNoopHandler,
   type Exec,
   type ExecOutcome,
 } from '@swarmui-master/swarm-agent';
@@ -443,6 +449,226 @@ describe('dockerRunFilerHandler', () => {
   });
 });
 
+describe('renderSeaweedfsMountUnit', () => {
+  it('composes a systemd service unit that waits on docker and runs weed mount', () => {
+    const body = renderSeaweedfsMountUnit({
+      filer: 'node02:8888',
+      mountPoint: '/var/lib/swarmui/shared',
+      collection: 'swarmui',
+      tls: false,
+    });
+    expect(body).toContain('[Unit]');
+    expect(body).toContain('After=docker.service network-online.target');
+    expect(body).toContain('Requires=docker.service');
+    expect(body).toContain('ExecStartPre=/bin/mkdir -p /var/lib/swarmui/shared');
+    expect(body).toContain('ExecStart=/usr/bin/docker exec seaweedfs-filer weed mount');
+    expect(body).toContain('-filer=node02:8888');
+    expect(body).toContain('-dir=/var/lib/swarmui/shared');
+    expect(body).toContain('-collection=swarmui');
+    expect(body).toContain('Restart=on-failure');
+    expect(body).toContain('WantedBy=multi-user.target');
+    // tls flag omitted when tls=false.
+    expect(body).not.toContain(' -tls');
+  });
+
+  it('appends -tls to the ExecStart when tls=true', () => {
+    const body = renderSeaweedfsMountUnit({
+      filer: 'node02:8888',
+      mountPoint: '/var/lib/swarmui/shared',
+      collection: 'swarmui',
+      tls: true,
+    });
+    expect(body).toContain(' -tls');
+  });
+});
+
+describe('installSeaweedfsMountSystemdUnitHandler', () => {
+  it('pipes the rendered unit through tee and then runs daemon-reload', async () => {
+    const calls: { argv: string[]; stdin?: string }[] = [];
+    const stub: Exec = async (argv, opts) => {
+      calls.push({ argv, stdin: opts?.stdin });
+      return okOutcome();
+    };
+    const h = installSeaweedfsMountSystemdUnitHandler(stub);
+    const result = await h(
+      baseReq('install-seaweedfs-mount-systemd-unit', {
+        filer: 'node02:8888',
+        mountPoint: '/var/lib/swarmui/shared',
+        collection: 'swarmui',
+        tls: false,
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(calls[0].argv).toEqual(['tee', SEAWEEDFS_MOUNT_UNIT_PATH]);
+    expect(calls[0].stdin).toContain('ExecStart=/usr/bin/docker exec seaweedfs-filer');
+    expect(calls[1].argv).toEqual(['systemctl', 'daemon-reload']);
+  });
+
+  it('does not daemon-reload when tee failed', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return argv[0] === 'tee'
+        ? { ...okOutcome(), exitCode: 1, stderrTail: 'read-only fs' }
+        : okOutcome();
+    };
+    const result = await installSeaweedfsMountSystemdUnitHandler(stub)(
+      baseReq('install-seaweedfs-mount-systemd-unit', {
+        filer: 'node02:8888',
+        mountPoint: '/var/lib/swarmui/shared',
+        collection: 'swarmui',
+      }),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderrTail).toBe('read-only fs');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('rejects an invalid filer URL before touching exec', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      installSeaweedfsMountSystemdUnitHandler(stub)(
+        baseReq('install-seaweedfs-mount-systemd-unit', {
+          filer: 'not;a;url',
+          mountPoint: '/var/lib/swarmui/shared',
+          collection: 'swarmui',
+        }),
+      ),
+    ).rejects.toThrow(/invalid filer/);
+  });
+});
+
+describe('systemctlEnableHandler', () => {
+  it('enables --now by default', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return okOutcome();
+    };
+    await systemctlEnableHandler('seaweedfs-mount.service', stub)(
+      baseReq('systemctl-enable-seaweedfs-mount'),
+    );
+    expect(calls[0]).toEqual([
+      'systemctl',
+      'enable',
+      '--now',
+      'seaweedfs-mount.service',
+    ]);
+  });
+
+  it('disables --now when action=disable (uninstall branch)', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      return okOutcome();
+    };
+    await systemctlEnableHandler('nfs-server.service', stub)(
+      baseReq('systemctl-enable-nfs-server', { action: 'disable' }),
+    );
+    expect(calls[0]).toEqual([
+      'systemctl',
+      'disable',
+      '--now',
+      'nfs-server.service',
+    ]);
+  });
+
+  it('refuses an invalid unit name at construction time', () => {
+    expect(() => systemctlEnableHandler('/etc/passwd')).toThrow(/invalid unitName/);
+  });
+});
+
+describe('firewallAllowPortsHandler', () => {
+  it('check-then-add per port, skipping ports whose rule already exists', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      // Pretend port 9333 already exists, 8080 does not.
+      if (argv[1] === '-C') {
+        const dportIdx = argv.indexOf('--dport');
+        const port = argv[dportIdx + 1];
+        return port === '9333'
+          ? okOutcome()
+          : { ...okOutcome(), exitCode: 1 };
+      }
+      return okOutcome();
+    };
+    const result = await firewallAllowPortsHandler(stub)(
+      baseReq('firewall-allow-seaweedfs-ports', {
+        ports: '9333,8080',
+        scope: 'overlay',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    const verbs = calls.map((c) => `${c[0]} ${c[1]}`);
+    // Two checks (9333, 8080), one add (8080 only).
+    expect(verbs).toEqual(['iptables -C', 'iptables -C', 'iptables -A']);
+    // Both rules tagged with scope + port in the comment.
+    const addCall = calls.find((c) => c[1] === '-A')!;
+    const commentIdx = addCall.indexOf('--comment');
+    expect(addCall[commentIdx + 1]).toMatch(/^swarmui-seaweedfs-overlay-\d+$/);
+  });
+
+  it('on action=revoke, calls -D and swallows exit 1 as "already gone"', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      // First port: no such rule (exit 1). Second port: deleted (exit 0).
+      const dportIdx = argv.indexOf('--dport');
+      return argv[dportIdx + 1] === '9333'
+        ? { ...okOutcome(), exitCode: 1 }
+        : okOutcome();
+    };
+    const result = await firewallAllowPortsHandler(stub)(
+      baseReq('firewall-allow-seaweedfs-ports', {
+        ports: '9333,8080',
+        action: 'revoke',
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(calls.map((c) => c[1])).toEqual(['-D', '-D']);
+  });
+
+  it('surfaces a real iptables error (exit >1) on add', async () => {
+    const stub: Exec = async (argv) => {
+      if (argv[1] === '-C') return { ...okOutcome(), exitCode: 1 };
+      return { ...okOutcome(), exitCode: 2, stderrTail: 'iptables: Lock busy' };
+    };
+    const result = await firewallAllowPortsHandler(stub)(
+      baseReq('firewall-allow-seaweedfs-ports', { ports: '9333' }),
+    );
+    expect(result.exitCode).toBe(2);
+    expect(result.stderrTail).toContain('Lock busy');
+  });
+
+  it('rejects a non-numeric port before any exec', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      firewallAllowPortsHandler(stub)(
+        baseReq('firewall-allow-seaweedfs-ports', { ports: '9333,8080;rm' }),
+      ),
+    ).rejects.toThrow(/invalid port/);
+  });
+});
+
+describe('tlsBootstrapNoopHandler', () => {
+  it('returns exit 0 with a visible marker explaining the v1 no-op', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    const result = await tlsBootstrapNoopHandler(stub)(
+      baseReq('seaweedfs-tls-bootstrap'),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderrTail).toContain('v1');
+    expect(result.stderrTail).toContain('insecure=true');
+  });
+});
+
 describe('realHandlerMap()', () => {
   it('registers a handler for every whitelisted commandId', () => {
     const map = realHandlerMap(async () => okOutcome());
@@ -462,15 +688,13 @@ describe('realHandlerMap()', () => {
     await map['mkdir-swarmui-shared-root']!(baseReq('mkdir-swarmui-shared-root'));
     await map['apt-install-fuse3']!(baseReq('apt-install-fuse3'));
     expect(argvCapture.length).toBeGreaterThan(0);
-    // Not yet implemented: NOOP never calls exec.
+    // Not yet implemented: still NOOP, never calls exec.
     argvCapture.length = 0;
-    await map['firewall-allow-seaweedfs-ports']!(
-      baseReq('firewall-allow-seaweedfs-ports'),
-    );
+    await map['nfs-export-add']!(baseReq('nfs-export-add'));
+    await map['mount-nfs']!(baseReq('mount-nfs'));
+    await map['fstab-add']!(baseReq('fstab-add'));
+    // TLS bootstrap: dedicated no-op handler for v1 — also must not exec.
     await map['seaweedfs-tls-bootstrap']!(baseReq('seaweedfs-tls-bootstrap'));
-    await map['install-seaweedfs-mount-systemd-unit']!(
-      baseReq('install-seaweedfs-mount-systemd-unit'),
-    );
     expect(argvCapture).toHaveLength(0);
   });
 });
