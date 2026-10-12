@@ -7,4 +7,5 @@ export * from './handlers/apt';
 export * from './handlers/docker';
 export * from './handlers/systemd';
 export * from './handlers/firewall';
+export * from './handlers/healthcheck';
 export * from './handlers/real-map';

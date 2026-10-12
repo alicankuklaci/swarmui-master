@@ -14,6 +14,7 @@ import {
   tlsBootstrapNoopHandler,
 } from './systemd';
 import { firewallAllowPortsHandler } from './firewall';
+import { seaweedfsHealthcheckHandler } from './healthcheck';
 import { defaultExec, type Exec } from './exec';
 import type { HandlerMap } from './types';
 
@@ -58,6 +59,10 @@ export function realHandlerMap(exec: Exec = defaultExec): HandlerMap {
   // TLS bootstrap: v1 insecure=true only. The handler is a documented no-op
   // until Sprint 7 wires a real cluster-CA — see tlsBootstrapNoopHandler.
   map['seaweedfs-tls-bootstrap'] = tlsBootstrapNoopHandler(exec);
-  // D4+: nfs-export, mount-nfs, fstab, healthcheck
+  // D5 implemented
+  map['seaweedfs-cluster-healthcheck'] = seaweedfsHealthcheckHandler(exec);
+  // NFS commands (nfs-export-add/remove, mount-nfs, fstab-add/remove) remain
+  // NOOP until the NFS driver ships a plan; writing them before a consumer
+  // exists would be dead code.
   return map;
 }

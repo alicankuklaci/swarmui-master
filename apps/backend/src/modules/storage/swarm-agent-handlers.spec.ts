@@ -12,6 +12,7 @@ import {
   renderSeaweedfsMountUnit,
   SEAWEEDFS_CONTAINER_NAMES,
   SEAWEEDFS_MOUNT_UNIT_PATH,
+  seaweedfsHealthcheckHandler,
   systemctlEnableHandler,
   testMountWriteHandler,
   tlsBootstrapNoopHandler,
@@ -652,6 +653,126 @@ describe('firewallAllowPortsHandler', () => {
         baseReq('firewall-allow-seaweedfs-ports', { ports: '9333,8080;rm' }),
       ),
     ).rejects.toThrow(/invalid port/);
+  });
+});
+
+describe('seaweedfsHealthcheckHandler', () => {
+  it('returns ok when master, filer and volume count all pass', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      // 1st call: /cluster/status → up
+      // 2nd call: sh -c (count PublicUrl) → stdoutTail='2'
+      // 3rd call: filer / → up
+      if (argv[0] === 'sh') {
+        return { ...okOutcome(), stdoutTail: '2\n' };
+      }
+      return okOutcome();
+    };
+    const result = await seaweedfsHealthcheckHandler(stub)(
+      baseReq('seaweedfs-cluster-healthcheck', {
+        master: 'node02:9333',
+        filer: 'node02:8888',
+        expectedVolumeServers: 2,
+      }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderrTail).toContain('cluster healthy');
+    // Three checks in order, both curls include --max-time + fail-on-error.
+    expect(calls[0][0]).toBe('curl');
+    expect(calls[0]).toContain('-fsS');
+    expect(calls[0]).toContain('http://node02:9333/cluster/status');
+    expect(calls[1][0]).toBe('sh');
+    expect(calls[2][0]).toBe('curl');
+    expect(calls[2]).toContain('http://node02:8888/');
+  });
+
+  it('fails when master /cluster/status is unreachable; never calls filer', async () => {
+    const calls: string[][] = [];
+    const stub: Exec = async (argv) => {
+      calls.push(argv);
+      if (argv.includes('http://node02:9333/cluster/status')) {
+        return { ...okOutcome(), exitCode: 7, stderrTail: 'connection refused' };
+      }
+      return okOutcome();
+    };
+    const result = await seaweedfsHealthcheckHandler(stub)(
+      baseReq('seaweedfs-cluster-healthcheck', {
+        master: 'node02:9333',
+        filer: 'node02:8888',
+        expectedVolumeServers: 2,
+      }),
+    );
+    expect(result.exitCode).toBe(7);
+    expect(result.stderrTail).toContain('master /cluster/status unreachable');
+    expect(result.stderrTail).toContain('connection refused');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('fails with "expected N found M" when volume server count is short', async () => {
+    const stub: Exec = async (argv) => {
+      if (argv[0] === 'sh') return { ...okOutcome(), stdoutTail: '1\n' };
+      return okOutcome();
+    };
+    const result = await seaweedfsHealthcheckHandler(stub)(
+      baseReq('seaweedfs-cluster-healthcheck', {
+        master: 'node02:9333',
+        filer: 'node02:8888',
+        expectedVolumeServers: 3,
+      }),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderrTail).toBe('expected 3 volume servers, found 1');
+  });
+
+  it('fails when filer is unreachable', async () => {
+    const stub: Exec = async (argv) => {
+      if (argv[0] === 'sh') return { ...okOutcome(), stdoutTail: '2\n' };
+      if (argv.includes('http://node02:8888/')) {
+        return { ...okOutcome(), exitCode: 22, stderrTail: 'HTTP 503' };
+      }
+      return okOutcome();
+    };
+    const result = await seaweedfsHealthcheckHandler(stub)(
+      baseReq('seaweedfs-cluster-healthcheck', {
+        master: 'node02:9333',
+        filer: 'node02:8888',
+        expectedVolumeServers: 2,
+      }),
+    );
+    expect(result.exitCode).toBe(22);
+    expect(result.stderrTail).toContain('filer unreachable');
+    expect(result.stderrTail).toContain('HTTP 503');
+  });
+
+  it('rejects a non-positive expectedVolumeServers before any exec', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      seaweedfsHealthcheckHandler(stub)(
+        baseReq('seaweedfs-cluster-healthcheck', {
+          master: 'node02:9333',
+          filer: 'node02:8888',
+          expectedVolumeServers: 0,
+        }),
+      ),
+    ).rejects.toThrow(/positive integer/);
+  });
+
+  it('rejects an injection-shaped master host before any exec', async () => {
+    const stub: Exec = async () => {
+      throw new Error('exec must not be called');
+    };
+    await expect(
+      seaweedfsHealthcheckHandler(stub)(
+        baseReq('seaweedfs-cluster-healthcheck', {
+          master: 'node02:9333;rm -rf /',
+          filer: 'node02:8888',
+          expectedVolumeServers: 2,
+        }),
+      ),
+    ).rejects.toThrow(/invalid master/);
   });
 });
 
