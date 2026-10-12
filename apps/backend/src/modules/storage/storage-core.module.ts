@@ -1,8 +1,10 @@
 import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { StorageAuditService } from './audit.service';
+import { InstallOrchestratorService } from './install-orchestrator.service';
 import { NodeExecClient } from './node-exec.client';
 import { StorageReconcilerService } from './reconciler.service';
 import { StorageService } from './storage.service';
@@ -34,6 +36,11 @@ import { NfsDriver } from './drivers/nfs/nfs.driver';
       { name: StorageAuditLog.name, schema: StorageAuditLogSchema },
     ]),
     ScheduleModule.forRoot(),
+    // Local EventEmitter — install orchestrator → SSE controller. AppModule
+    // already calls forRoot() so the instance here is a no-op if the global
+    // one wins the DI race, but declaring it locally keeps the module
+    // self-contained for unit boots.
+    EventEmitterModule.forRoot(),
   ],
   controllers: [StorageController],
   providers: [
@@ -43,12 +50,14 @@ import { NfsDriver } from './drivers/nfs/nfs.driver';
     SeaweedfsDriver,
     NfsDriver,
     StorageReconcilerService,
+    InstallOrchestratorService,
     StorageService,
   ],
   exports: [
     StorageAuditService,
     NodeExecClient,
     DriverRegistry,
+    InstallOrchestratorService,
     StorageService,
   ],
 })
