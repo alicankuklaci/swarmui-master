@@ -33,3 +33,19 @@ export interface StorageInstallStepEvent {
   // included so the frame is self-describing when persisted outside SSE.
   ts: string;
 }
+
+// Emitted by the reconciler when the set of swarm services bind-mounting the
+// shared path changes between ticks. Not part of the install SSE stream —
+// the alerting / dashboarding path consumes this separately. Added + removed
+// are set differences; `consumers` is the full current set so a late
+// subscriber doesn't need to replay the stream to catch up.
+export const STORAGE_CONSUMER_DRIFT_EVENT = 'storage.consumer.drift' as const;
+export type StorageConsumerDriftEventName = typeof STORAGE_CONSUMER_DRIFT_EVENT;
+
+export interface StorageConsumerDriftEvent {
+  mountPoint: string;
+  consumers: string[];
+  added: string[];
+  removed: string[];
+  ts: string;
+}

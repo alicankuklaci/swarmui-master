@@ -49,6 +49,17 @@ export class SharedStorage {
   @Prop()
   lastHealthCheckAt?: Date;
 
+  // Snapshot of the consumer set at the last reconciler tick. Drift
+  // detection compares the current set against this one and emits an
+  // event when it changes. Nullable so the first-ever tick doesn't fire
+  // a spurious "N services appeared" alert.
+  @Prop({ type: [String] })
+  lastKnownConsumers?: string[];
+
+  // ISO timestamp of the last tick that changed lastKnownConsumers.
+  @Prop()
+  lastConsumerDriftAt?: Date;
+
   // User who kicked off the current install/uninstall.
   @Prop()
   initiatedBy?: string;
