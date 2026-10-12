@@ -237,4 +237,146 @@ describe('SeaweedfsDriver', () => {
       );
     });
   });
+
+  // ---- probeHealth (Sprint 5 D1) ----
+  // The driver's fetchImpl is swappable; each test substitutes a stub so
+  // we exercise the real URL composition + response parsing without a
+  // live cluster.
+
+  describe('probeHealth()', () => {
+    const okResponse = (body = ''): Response =>
+      ({
+        ok: true,
+        status: 200,
+        text: () => Promise.resolve(body),
+      }) as unknown as Response;
+    const failResponse = (status: number): Response =>
+      ({
+        ok: false,
+        status,
+        text: () => Promise.resolve(''),
+      }) as unknown as Response;
+
+    const twoVolumeBody = JSON.stringify({
+      Volumes: {
+        DataCenters: {
+          swarm: {
+            node02: { Max: 7, 'PublicUrl': 'node02:8080' },
+            node03: { Max: 7, 'PublicUrl': 'node03:8080' },
+          },
+        },
+      },
+    });
+
+    it('returns ok=true when master, filer and volume count all pass', async () => {
+      const calls: string[] = [];
+      const stub: typeof fetch = async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith('/vol/status')) return okResponse(twoVolumeBody);
+        return okResponse();
+      };
+      driver.fetchImpl = stub;
+      const result = await driver.probeHealth(baseConfig());
+      expect(result).toEqual({ ok: true });
+      // Each endpoint called in order.
+      expect(calls).toEqual([
+        'https://node02:9333/cluster/status',
+        'https://node02:9333/vol/status',
+        'https://node02:8888/',
+      ]);
+    });
+
+    it('uses http (not https) when config.insecure=true', async () => {
+      const calls: string[] = [];
+      const stub: typeof fetch = async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith('/vol/status')) return okResponse(twoVolumeBody);
+        return okResponse();
+      };
+      driver.fetchImpl = stub;
+      await driver.probeHealth(baseConfig({ insecure: true }));
+      expect(calls[0]).toBe('http://node02:9333/cluster/status');
+      expect(calls[2]).toBe('http://node02:8888/');
+    });
+
+    it('fails fast on master unreachable; never calls filer', async () => {
+      const calls: string[] = [];
+      const stub: typeof fetch = async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.includes('/cluster/status')) {
+          throw new Error('ECONNREFUSED');
+        }
+        return okResponse();
+      };
+      driver.fetchImpl = stub;
+      const result = await driver.probeHealth(baseConfig());
+      expect(result.ok).toBe(false);
+      expect(result.cause).toContain('master unreachable');
+      expect(result.cause).toContain('ECONNREFUSED');
+      expect(calls).toHaveLength(1);
+    });
+
+    it('fails with "expected N found M" when the volume count is short', async () => {
+      // Body only has one PublicUrl, config has two nodes.
+      const oneVolumeBody = JSON.stringify({
+        Volumes: {
+          DataCenters: {
+            swarm: {
+              node02: { 'PublicUrl': 'node02:8080' },
+            },
+          },
+        },
+      });
+      const stub: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url.endsWith('/vol/status')) return okResponse(oneVolumeBody);
+        return okResponse();
+      };
+      driver.fetchImpl = stub;
+      const result = await driver.probeHealth(baseConfig());
+      expect(result.ok).toBe(false);
+      expect(result.cause).toBe('expected 2 volume servers, found 1');
+    });
+
+    it('fails when filer returns non-2xx', async () => {
+      const stub: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url.endsWith('/vol/status')) return okResponse(twoVolumeBody);
+        if (url === 'https://node02:8888/') return failResponse(503);
+        return okResponse();
+      };
+      driver.fetchImpl = stub;
+      const result = await driver.probeHealth(baseConfig());
+      expect(result.ok).toBe(false);
+      expect(result.cause).toContain('filer unreachable');
+      expect(result.cause).toContain('HTTP 503');
+    });
+
+    it('fails when /vol/status returns a non-2xx (surfaced as master /vol/status)', async () => {
+      const stub: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url.endsWith('/vol/status')) return failResponse(500);
+        return okResponse();
+      };
+      driver.fetchImpl = stub;
+      const result = await driver.probeHealth(baseConfig());
+      expect(result.ok).toBe(false);
+      expect(result.cause).toContain('master /vol/status');
+      expect(result.cause).toContain('HTTP 500');
+    });
+
+    it('rejects an invalid config before touching fetch', async () => {
+      const stub: typeof fetch = async () => {
+        throw new Error('fetch must not be called');
+      };
+      driver.fetchImpl = stub;
+      // nodes empty → validate() throws BadRequestException.
+      await expect(
+        driver.probeHealth(baseConfig({ nodes: [] })),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 });

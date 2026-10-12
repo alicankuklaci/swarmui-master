@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type {
   InstallPlan,
   InstallPlanStep,
@@ -7,7 +7,7 @@ import type {
   StorageBackend,
 } from '@swarmui-master/storage-plan';
 import { ConsumerInspectorService } from '../../consumer-inspector.service';
-import { IStorageDriver } from '../driver.interface';
+import { HealthProbeResult, IStorageDriver } from '../driver.interface';
 
 // SeaweedFS driver — Sprint 2.
 //
@@ -40,9 +40,21 @@ const DEFAULT_REPLICATION = '010';
 const V1_MOUNT_POINT = '/var/lib/swarmui/shared';
 const SW_IMAGE = 'chrislusf/seaweedfs:3.80';
 
+// Probe runs backend-side on the swarm manager. These URLs are reached
+// directly, not through node-exec — a per-minute HMAC round-trip to the
+// agent would double the cost of healthchecks on an otherwise idle cluster.
+// The HTTP endpoints match the ones the install-time seaweedfs-cluster-
+// healthcheck step verifies (packages/swarm-agent/src/handlers/healthcheck.ts).
+const PROBE_TIMEOUT_MS = 5_000;
+
 @Injectable()
 export class SeaweedfsDriver implements IStorageDriver {
   readonly backend: StorageBackend = 'seaweedfs';
+  private readonly logger = new Logger(SeaweedfsDriver.name);
+  // Overridable in tests. We don't inject fetch via Nest DI because fetch is
+  // a global in Node 18+ and swapping it in tests via driver.fetch = fn is
+  // less ceremony than wrapping it in a provider.
+  fetchImpl: typeof fetch = (input, init) => fetch(input, init);
 
   constructor(private readonly consumerInspector: ConsumerInspectorService) {}
 
@@ -317,6 +329,97 @@ export class SeaweedfsDriver implements IStorageDriver {
     // swarm services whose spec bind-mounts the shared mount, so the delete
     // path can refuse an uninstall while anyone is still using the storage.
     return this.consumerInspector.enumerateConsumers(mountPoint);
+  }
+
+  // Sprint 5: HTTP probe against the running cluster. Three checks, same
+  // shape as the install-time healthcheck: master `/cluster/status`,
+  // master `/vol/status` with volume server count, filer `/`.
+  //
+  // The config carries `nodes` so we know the expected volume-server count
+  // (one per node for v1) and `insecure` so we pick http vs https. Any
+  // single-probe failure sets ok=false — the reconciler's state machine
+  // decides whether that's a transient blip or a real DEGRADED.
+  async probeHealth(config: SharedStorageConfig): Promise<HealthProbeResult> {
+    this.validate(config);
+    const master = config.nodes[0];
+    const scheme = config.insecure === true ? 'http' : 'https';
+    const masterUrl = `${scheme}://${master}:${SW_MASTER_PORT}`;
+    const filerUrl = `${scheme}://${master}:${SW_FILER_PORT}`;
+    const expectedVolumes = config.nodes.length;
+
+    // 1. Master /cluster/status reachable.
+    const cluster = await this.probe(`${masterUrl}/cluster/status`);
+    if (!cluster.ok) {
+      return { ok: false, cause: `master unreachable: ${cluster.cause}` };
+    }
+
+    // 2. Master /vol/status: parse JSON, count distinct volume servers.
+    //    SeaweedFS has returned several shapes historically — we count
+    //    occurrences of `"PublicUrl"` in the response body, matching the
+    //    install-time grep check. If the body couldn't be read we fail
+    //    cleanly instead of asserting a specific JSON schema.
+    const vol = await this.probeText(`${masterUrl}/vol/status`);
+    if (!vol.ok || vol.body === undefined) {
+      return { ok: false, cause: `master /vol/status: ${vol.cause}` };
+    }
+    const found = (vol.body.match(/"PublicUrl"/g) ?? []).length;
+    if (found < expectedVolumes) {
+      return {
+        ok: false,
+        cause: `expected ${expectedVolumes} volume servers, found ${found}`,
+      };
+    }
+
+    // 3. Filer reachable.
+    const filer = await this.probe(`${filerUrl}/`);
+    if (!filer.ok) {
+      return { ok: false, cause: `filer unreachable: ${filer.cause}` };
+    }
+
+    return { ok: true };
+  }
+
+  private async probe(
+    url: string,
+  ): Promise<{ ok: boolean; cause?: string }> {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+      try {
+        const res = await this.fetchImpl(url, { signal: ctrl.signal });
+        if (!res.ok) {
+          return { ok: false, cause: `HTTP ${res.status}` };
+        }
+        return { ok: true };
+      } finally {
+        clearTimeout(t);
+      }
+    } catch (err) {
+      const msg = (err as Error).message || 'fetch failed';
+      return { ok: false, cause: msg.slice(0, 200) };
+    }
+  }
+
+  private async probeText(
+    url: string,
+  ): Promise<{ ok: boolean; cause?: string; body?: string }> {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+      try {
+        const res = await this.fetchImpl(url, { signal: ctrl.signal });
+        if (!res.ok) {
+          return { ok: false, cause: `HTTP ${res.status}` };
+        }
+        const body = await res.text();
+        return { ok: true, body };
+      } finally {
+        clearTimeout(t);
+      }
+    } catch (err) {
+      const msg = (err as Error).message || 'fetch failed';
+      return { ok: false, cause: msg.slice(0, 200) };
+    }
   }
 
   private validate(config: SharedStorageConfig): void {

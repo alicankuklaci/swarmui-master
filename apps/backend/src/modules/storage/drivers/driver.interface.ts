@@ -34,4 +34,19 @@ export interface IStorageDriver {
   // mountPoint. Called before uninstall to refuse a destructive teardown while
   // consumers remain. Returns a list of human-readable identifiers.
   enumerateConsumers(mountPoint: string): Promise<string[]>;
+
+  // Active health probe. Called every reconcile tick to decide HEALTHY ↔
+  // DEGRADED ↔ RECOVERING transitions. Runs from the backend (which lives on
+  // the swarm manager), not through node-exec — a per-minute agent round-trip
+  // would cost orders of magnitude more than a direct HTTP probe to the
+  // cluster endpoints. Returns a verdict + a short cause string for the
+  // storage.state.transition event when it changes state.
+  probeHealth(config: SharedStorageConfig): Promise<HealthProbeResult>;
+}
+
+export interface HealthProbeResult {
+  ok: boolean;
+  // When ok=false, a short one-line explanation surfaced in the state
+  // transition event and the backend log. ≤200 chars.
+  cause?: string;
 }

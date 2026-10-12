@@ -5,7 +5,7 @@ import type {
   StorageBackend,
 } from '@swarmui-master/storage-plan';
 import { ConsumerInspectorService } from '../../consumer-inspector.service';
-import { IStorageDriver } from '../driver.interface';
+import { HealthProbeResult, IStorageDriver } from '../driver.interface';
 
 // Stub — the simple-mode NFS driver (Sprint 2) is the first real driver and
 // will be implemented before SeaweedFS. For now, present the surface so the
@@ -28,5 +28,14 @@ export class NfsDriver implements IStorageDriver {
   // bind-mount the shared path" is backend-independent.
   async enumerateConsumers(mountPoint: string): Promise<string[]> {
     return this.consumerInspector.enumerateConsumers(mountPoint);
+  }
+
+  // Sprint 5: health probe. The NFS driver's install path is still stubbed;
+  // returning ok=true unconditionally would let an installed-but-not-really
+  // doc stay HEALTHY forever. Return ok=false with a visible cause so an
+  // operator who installed NFS by hand sees exactly why the reconciler
+  // thinks it's degraded.
+  async probeHealth(_config: SharedStorageConfig): Promise<HealthProbeResult> {
+    return { ok: false, cause: 'NfsDriver.probeHealth not implemented (Sprint 6)' };
   }
 }
