@@ -1,8 +1,12 @@
 import { Logger, Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ScheduleModule } from '@nestjs/schedule';
 import { StorageAuditService } from './audit.service';
 import { NodeExecClient } from './node-exec.client';
+import { StorageReconcilerService } from './reconciler.service';
+import { StorageService } from './storage.service';
+import { StorageController } from './storage.controller';
 import {
   SharedStorage,
   SharedStorageSchema,
@@ -15,9 +19,9 @@ import { DriverRegistry } from './drivers/driver.registry';
 import { SeaweedfsDriver } from './drivers/seaweedfs/seaweedfs.driver';
 import { NfsDriver } from './drivers/nfs/nfs.driver';
 
-// Core module (Sprint 1). No controllers yet — the install/uninstall HTTP
-// surface lands with the first real driver in Sprint 2. Everything here is
-// infrastructure (schemas, audit, node-exec, driver registry).
+// Core module (Sprint 1). Install/uninstall orchestration lives in Sprint 2+;
+// everything registered here is the stable infrastructure (schemas, audit,
+// node-exec, driver registry, reconciler cron slot, HTTP surface).
 //
 // Feature flag: FEATURE_SHARED_STORAGE=true in env. When false (the default),
 // AppModule skips importing this module entirely, so a disabled feature costs
@@ -29,15 +33,24 @@ import { NfsDriver } from './drivers/nfs/nfs.driver';
       { name: SharedStorage.name, schema: SharedStorageSchema },
       { name: StorageAuditLog.name, schema: StorageAuditLogSchema },
     ]),
+    ScheduleModule.forRoot(),
   ],
+  controllers: [StorageController],
   providers: [
     StorageAuditService,
     NodeExecClient,
     DriverRegistry,
     SeaweedfsDriver,
     NfsDriver,
+    StorageReconcilerService,
+    StorageService,
   ],
-  exports: [StorageAuditService, NodeExecClient, DriverRegistry],
+  exports: [
+    StorageAuditService,
+    NodeExecClient,
+    DriverRegistry,
+    StorageService,
+  ],
 })
 export class StorageCoreModule implements OnModuleInit {
   private readonly logger = new Logger(StorageCoreModule.name);
