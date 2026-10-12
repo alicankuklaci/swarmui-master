@@ -150,6 +150,102 @@ export class InstallOrchestratorService {
     });
   }
 
+  // Reverse lifecycle. Walks the driver's uninstallPlan() with the same
+  // step-execution + audit path as install, but transitions through
+  // DRAINING → UNINSTALLED. Preconditions (doc exists; state ∈ {HEALTHY,
+  // DEGRADED}; no consumers) are enforced upstream by StorageService —
+  // this method trusts the caller and emits a `failed` frame if the
+  // state machine refuses the transition.
+  async uninstall(
+    sessionId: string,
+    config: SharedStorageConfig,
+    initiatedBy: string,
+  ): Promise<void> {
+    const driver = this.drivers.get(config.backend);
+    let plan: InstallPlan;
+    try {
+      plan = await driver.uninstallPlan(config, sessionId);
+    } catch (err) {
+      await this.emitFailed(sessionId, 'HEALTHY', (err as Error).message);
+      return;
+    }
+
+    const sm = await this.openStateMachineForUninstall(sessionId);
+    if (sm.current() !== 'DRAINING') {
+      this.logger.warn(
+        `uninstall(${sessionId}): state is ${sm.current()}, refusing to execute plan`,
+      );
+      await this.emitFailed(
+        sessionId,
+        sm.current(),
+        `uninstall refused: state=${sm.current()}`,
+      );
+      return;
+    }
+
+    await this.emit({
+      sessionId,
+      phase: 'started',
+      state: 'DRAINING',
+      frame: 0,
+      ts: new Date().toISOString(),
+    });
+
+    // No resume marker for uninstall in v1 — every teardown step is
+    // declared `terminalOnFail: true` in the driver's uninstallPlan, and
+    // the operator is expected to fix the host before retrying. A
+    // partial retry would race the half-torn-down cluster.
+    for (let i = 0; i < plan.steps.length; i++) {
+      const step = plan.steps[i];
+      const frame = i + 1;
+      const result = await this.executeStep(
+        step,
+        sessionId,
+        initiatedBy,
+        frame,
+        'DRAINING',
+      );
+      if (result.exitCode !== 0) {
+        try {
+          sm.transition('UNINSTALL_FAILED');
+          await this.persistState('UNINSTALL_FAILED');
+        } catch {
+          /* already terminal */
+        }
+        await this.emit({
+          sessionId,
+          phase: 'failed',
+          state: 'UNINSTALL_FAILED',
+          stepId: step.id,
+          stepDescription: step.description,
+          nodeId: step.nodeId,
+          exitCode: result.exitCode,
+          durationMs: result.durationMs,
+          cause: result.stderrTail?.split('\n')[0]?.slice(0, 200),
+          frame: plan.steps.length + 1,
+          ts: new Date().toISOString(),
+        });
+        return;
+      }
+    }
+
+    try {
+      sm.transition('UNINSTALLED');
+      await this.persistState('UNINSTALLED');
+    } catch (err) {
+      this.logger.error(
+        `uninstall(${sessionId}): terminal transition failed: ${(err as Error).message}`,
+      );
+    }
+    await this.emit({
+      sessionId,
+      phase: 'done',
+      state: 'UNINSTALLED',
+      frame: plan.steps.length + 1,
+      ts: new Date().toISOString(),
+    });
+  }
+
   // ----- step execution -----
 
   private async executeStep(
@@ -157,6 +253,7 @@ export class InstallOrchestratorService {
     sessionId: string,
     initiatedBy: string,
     frame: number,
+    inflightState: StorageState = 'INSTALLING',
   ): Promise<NodeExecResult> {
     const req: NodeExecRequest = this.nodeExec.buildRequest({
       commandId: step.commandId,
@@ -199,7 +296,7 @@ export class InstallOrchestratorService {
     await this.emit({
       sessionId,
       phase: 'step',
-      state: result.exitCode === 0 ? 'INSTALLING' : 'UNINSTALL_FAILED',
+      state: result.exitCode === 0 ? inflightState : 'UNINSTALL_FAILED',
       stepId: step.id,
       stepDescription: step.description,
       nodeId: step.nodeId,
@@ -272,6 +369,44 @@ export class InstallOrchestratorService {
     // Any other state → return the machine without transitioning. run()
     // checks current()!=='INSTALLING' and bails.
     return StorageStateMachine.fromPersisted(doc.state);
+  }
+
+  // Mirror of openStateMachine but for the uninstall path. Caller
+  // (StorageService.queueUninstall) has already validated preconditions —
+  // doc exists, state is HEALTHY or DEGRADED, zero consumers. We transition
+  // HEALTHY → DRAINING (or DEGRADED → DRAINING) and persist before any step
+  // runs so a mid-uninstall crash leaves the DB consistent with "we started
+  // tearing down". A stale state (someone kicked another op) returns the
+  // state machine untouched and the caller bails.
+  private async openStateMachineForUninstall(
+    sessionId: string,
+  ): Promise<StorageStateMachine> {
+    const doc = await this.storageModel
+      .findById(InstallOrchestratorService.PRIMARY_ID)
+      .lean()
+      .exec();
+    if (!doc) {
+      // Shouldn't happen if StorageService guarded correctly; synthesize a
+      // PENDING machine so the caller sees DRAINING-check-failed.
+      return new StorageStateMachine('PENDING');
+    }
+    const sm = StorageStateMachine.fromPersisted(doc.state);
+    if (sm.current() === 'HEALTHY' || sm.current() === 'DEGRADED') {
+      sm.transition('DRAINING');
+      await this.storageModel
+        .updateOne(
+          { _id: InstallOrchestratorService.PRIMARY_ID },
+          {
+            $set: {
+              state: 'DRAINING' satisfies StorageState,
+              installSessionId: sessionId,
+              lastAttemptedStepId: null,
+            },
+          },
+        )
+        .exec();
+    }
+    return sm;
   }
 
   private async persistState(

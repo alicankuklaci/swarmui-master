@@ -120,11 +120,16 @@ describe('InstallOrchestratorService', () => {
     initial: Record<string, unknown> | null,
     plan: InstallPlan | Error,
     responses: NodeExecResult[] | Error[],
+    uninstallPlan?: InstallPlan | Error,
   ) => {
     const { storeRef, model } = buildModel(initial);
     planFn = jest.fn(() => {
       if (plan instanceof Error) throw plan;
       return plan;
+    });
+    const uninstallPlanFn = jest.fn(() => {
+      if (uninstallPlan instanceof Error) throw uninstallPlan;
+      return uninstallPlan;
     });
     let callIdx = 0;
     sendFn = jest.fn(() => {
@@ -146,7 +151,7 @@ describe('InstallOrchestratorService', () => {
             get: () => ({
               backend: 'seaweedfs',
               plan: planFn,
-              uninstallPlan: jest.fn(),
+              uninstallPlan: uninstallPlanFn,
               enumerateConsumers: jest.fn().mockResolvedValue([]),
             }),
           },
@@ -340,6 +345,152 @@ describe('InstallOrchestratorService', () => {
         phase: 'failed',
         state: 'PENDING',
         cause: 'bad config',
+      });
+    });
+  });
+
+  // -------- uninstall (Sprint 4 D2) --------
+
+  // Tiny uninstall plan: two steps so we can prove ordering + terminal state.
+  // Each step is `terminalOnFail` in the real driver; we don't assert on that
+  // flag here (orchestrator treats all failures the same way for v1).
+  function tinyUninstallPlan(sessionId: string): InstallPlan {
+    return {
+      backend: 'seaweedfs',
+      sessionId,
+      mountPoint: '/var/lib/swarmui/shared',
+      steps: [
+        {
+          id: 'u01-stop-mount-node02',
+          description: 'systemctl disable --now seaweedfs-mount on node02',
+          nodeId: 'node02',
+          commandId: 'systemctl-enable-seaweedfs-mount',
+          args: { action: 'disable' },
+          terminalOnFail: true,
+        },
+        {
+          id: 'u02-stop-master-node02',
+          description: 'Stop seaweedfs master container on node02',
+          nodeId: 'node02',
+          commandId: 'docker-run-seaweedfs-master',
+          args: { action: 'stop' },
+          terminalOnFail: true,
+        },
+      ],
+    };
+  }
+
+  describe('uninstall happy path', () => {
+    it('walks every step, transitions HEALTHY → DRAINING → UNINSTALLED, emits done', async () => {
+      const { storeRef } = await build(
+        {
+          _id: 'primary',
+          backend: 'seaweedfs',
+          driver: 'seaweedfs',
+          nodes: ['node02'],
+          mountPoint: '/var/lib/swarmui/shared',
+          state: 'HEALTHY',
+          installSessionId: 'sess-prev-install',
+        },
+        tinyPlan('ignored'), // install plan — not touched by uninstall
+        [
+          okResult('node02', 'systemctl-enable-seaweedfs-mount'),
+          okResult('node02', 'docker-run-seaweedfs-master'),
+        ],
+        tinyUninstallPlan('sess-un-1'),
+      );
+      await service.uninstall('sess-un-1', CFG, 'u1');
+      expect((storeRef.current as { state: string }).state).toBe('UNINSTALLED');
+      // Audit per step.
+      expect(auditWrite).toHaveBeenCalledTimes(2);
+      // Event trail: started(DRAINING) → step → step → done(UNINSTALLED).
+      expect(frames.map((f) => f.phase)).toEqual(['started', 'step', 'step', 'done']);
+      expect(frames.map((f) => f.state)).toEqual([
+        'DRAINING',
+        'DRAINING',
+        'DRAINING',
+        'UNINSTALLED',
+      ]);
+      expect(frames[1].stepId).toBe('u01-stop-mount-node02');
+    });
+  });
+
+  describe('uninstall step failure', () => {
+    it('stops at the first non-zero exit, flips to UNINSTALL_FAILED', async () => {
+      const { storeRef } = await build(
+        {
+          _id: 'primary',
+          backend: 'seaweedfs',
+          driver: 'seaweedfs',
+          nodes: ['node02'],
+          mountPoint: '/var/lib/swarmui/shared',
+          state: 'HEALTHY',
+          installSessionId: 'sess-prev',
+        },
+        tinyPlan('ignored'),
+        [failResult('node02', 'systemctl-enable-seaweedfs-mount', 'unit not found')],
+        tinyUninstallPlan('sess-un-2'),
+      );
+      await service.uninstall('sess-un-2', CFG, 'u1');
+      expect((storeRef.current as { state: string }).state).toBe('UNINSTALL_FAILED');
+      expect(sendFn).toHaveBeenCalledTimes(1);
+      const failed = frames[frames.length - 1];
+      expect(failed.phase).toBe('failed');
+      expect(failed.state).toBe('UNINSTALL_FAILED');
+      expect(failed.cause).toBe('unit not found');
+    });
+  });
+
+  describe('uninstall refuses from a non-tearing-down state', () => {
+    it('bails without transitioning when state is UNINSTALLED', async () => {
+      const { storeRef } = await build(
+        {
+          _id: 'primary',
+          backend: 'seaweedfs',
+          driver: 'seaweedfs',
+          nodes: ['node02'],
+          mountPoint: '/var/lib/swarmui/shared',
+          state: 'UNINSTALLED',
+          installSessionId: 'sess-older',
+        },
+        tinyPlan('ignored'),
+        [],
+        tinyUninstallPlan('sess-un-3'),
+      );
+      await service.uninstall('sess-un-3', CFG, 'u1');
+      expect((storeRef.current as { state: string }).state).toBe('UNINSTALLED');
+      expect(sendFn).not.toHaveBeenCalled();
+      // One `failed` frame explaining the refusal, no `started`.
+      expect(frames.map((f) => f.phase)).toEqual(['failed']);
+      expect(frames[0].state).toBe('UNINSTALLED');
+      expect(frames[0].cause).toContain('refused');
+    });
+  });
+
+  describe('uninstall plan generation failure', () => {
+    it('emits failed without touching the state machine', async () => {
+      const { storeRef } = await build(
+        {
+          _id: 'primary',
+          backend: 'seaweedfs',
+          driver: 'seaweedfs',
+          nodes: ['node02'],
+          mountPoint: '/var/lib/swarmui/shared',
+          state: 'HEALTHY',
+          installSessionId: 'sess-prev',
+        },
+        tinyPlan('ignored'),
+        [],
+        new Error('bad uninstall config'),
+      );
+      await service.uninstall('sess-un-4', CFG, 'u1');
+      expect((storeRef.current as { state: string }).state).toBe('HEALTHY');
+      expect(sendFn).not.toHaveBeenCalled();
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({
+        phase: 'failed',
+        state: 'HEALTHY',
+        cause: 'bad uninstall config',
       });
     });
   });
