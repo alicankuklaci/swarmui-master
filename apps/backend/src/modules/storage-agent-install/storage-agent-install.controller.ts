@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
+  BadRequestException,
+  Body,
   Controller,
   Get,
   Header,
@@ -22,6 +24,12 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RbacGuard } from '../../common/guards/rbac.guard';
 import { InstallTokenStore } from './install-token.store';
 import { InstallTokenGuard } from './install-token.guard';
+import { AgentProbeService, AgentProbeResult } from './agent-probe.service';
+
+// Hostname regex kept inline to avoid a cross-module import from
+// install-storage.dto — this controller is loaded even when the storage
+// feature flag is off, and we don't want to pull a flag-gated DTO file.
+const NODE_NAME_RE_LOCAL = /^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
 // Operator setup endpoints for the shared-storage swarm-agent.
 //
@@ -184,7 +192,61 @@ export interface IssueInstallTokenResponse {
 export class StorageAgentInstallController {
   private readonly logger = new Logger(StorageAgentInstallController.name);
 
-  constructor(private readonly tokens: InstallTokenStore) {}
+  constructor(
+    private readonly tokens: InstallTokenStore,
+    private readonly probe: AgentProbeService,
+  ) {}
+
+  @UseGuards(JwtAuthGuard, RbacGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @UseGuards(ThrottlerGuard)
+  @Get('swarm-nodes')
+  @ApiOperation({
+    summary:
+      'List hostnames of every node in the local Docker Swarm. Pre-fills the install wizard so operators do not type node names by hand.',
+  })
+  async swarmNodes(): Promise<{
+    nodes: Array<{ nodeId: string; role: string; availability: string }>;
+  }> {
+    const nodes = await this.probe.listSwarmNodes();
+    return { nodes };
+  }
+
+  @UseGuards(JwtAuthGuard, RbacGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @UseGuards(ThrottlerGuard)
+  @Post('ping-nodes')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      'TCP probe port 9443 on each listed node. Returns per-node up/down + latency; the install wizard poll loop uses this to show when the operator has finished pasting the installer on every node.',
+  })
+  async pingNodes(
+    @Body() body: { nodes?: unknown },
+  ): Promise<{ results: AgentProbeResult[]; allUp: boolean }> {
+    const raw = body?.nodes;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new BadRequestException('nodes[] required');
+    }
+    if (raw.length > 64) {
+      throw new BadRequestException('nodes[] max length is 64');
+    }
+    const nodeIds: string[] = [];
+    for (const n of raw) {
+      if (typeof n !== 'string' || !NODE_NAME_RE_LOCAL.test(n)) {
+        throw new BadRequestException(
+          `nodes[]: ${JSON.stringify(n)} is not a valid RFC-1123 hostname`,
+        );
+      }
+      nodeIds.push(n);
+    }
+    const results = await this.probe.probeMany(nodeIds);
+    return { results, allUp: results.every((r) => r.up) };
+  }
 
   @UseGuards(JwtAuthGuard, RbacGuard)
   @Roles('admin')

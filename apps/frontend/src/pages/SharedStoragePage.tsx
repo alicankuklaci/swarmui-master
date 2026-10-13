@@ -110,6 +110,7 @@ export function SharedStoragePage() {
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
   const [agentBundle, setAgentBundle] = useState<AgentInstallBundle | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
+  const [prefilledNodes, setPrefilledNodes] = useState<string[]>([]);
 
   const statusQuery = useQuery<SharedStorageStatus | null>({
     queryKey: ['shared-storage'],
@@ -321,6 +322,7 @@ export function SharedStoragePage() {
         onSubmit={(dto) => installMutation.mutate(dto)}
         isPending={installMutation.isPending}
         error={installError}
+        initialNodes={prefilledNodes}
       />
 
       <SetupAgentsDialog
@@ -330,6 +332,11 @@ export function SharedStoragePage() {
         isPending={agentTokenMutation.isPending}
         error={agentError}
         onRegenerate={openAgentSetup}
+        onReadyToInstall={(nodes) => {
+          setPrefilledNodes(nodes);
+          setInstallError(null);
+          setInstallOpen(true);
+        }}
       />
     </div>
   );
@@ -518,15 +525,25 @@ function InstallDialog({
   onSubmit,
   isPending,
   error,
+  initialNodes,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (dto: InstallDto) => void;
   isPending: boolean;
   error: string | null;
+  initialNodes?: string[];
 }) {
   const [backend, setBackend] = useState<'seaweedfs' | 'nfs'>('seaweedfs');
   const [nodesRaw, setNodesRaw] = useState('');
+
+  // Pre-fill the node list when the Setup Agents panel hands over a verified
+  // ready set — saves the operator from re-typing hostnames.
+  useEffect(() => {
+    if (open && initialNodes && initialNodes.length > 0) {
+      setNodesRaw(initialNodes.join(', '));
+    }
+  }, [open, initialNodes]);
   const [nfsServerNode, setNfsServerNode] = useState('');
   const [replication, setReplication] = useState('010');
   const [insecure, setInsecure] = useState(true);
@@ -878,6 +895,14 @@ function FrameRow({ frame }: { frame: InstallStepEvent }) {
 // Setup agents dialog (Sprint 9)
 // -----------------------------------------------------------------------
 
+type SwarmNode = { nodeId: string; role: string; availability: string };
+type ProbeResult = {
+  nodeId: string;
+  up: boolean;
+  latencyMs?: number;
+  error?: string;
+};
+
 function SetupAgentsDialog({
   open,
   onOpenChange,
@@ -885,6 +910,7 @@ function SetupAgentsDialog({
   isPending,
   error,
   onRegenerate,
+  onReadyToInstall,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -892,13 +918,71 @@ function SetupAgentsDialog({
   isPending: boolean;
   error: string | null;
   onRegenerate: () => void;
+  onReadyToInstall: (nodes: string[]) => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
+  const [swarmNodes, setSwarmNodes] = useState<SwarmNode[] | null>(null);
+  const [probeByNode, setProbeByNode] = useState<Record<string, ProbeResult>>({});
+  const [probeError, setProbeError] = useState<string | null>(null);
   useEffect(() => {
     if (!open || !bundle) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, [open, bundle]);
+
+  // Fetch swarm nodes once when the dialog opens — the probe loop keys off
+  // this list, so no list means no polling.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    api
+      .get('/storage/agent/swarm-nodes')
+      .then((r) => unwrap<{ nodes: SwarmNode[] }>(r))
+      .then((data) => {
+        if (!cancelled) setSwarmNodes(data.nodes);
+      })
+      .catch(() => {
+        if (!cancelled) setSwarmNodes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Poll every 2s while the dialog is open and there's a non-empty node list.
+  // Each tick fires a POST /storage/agent/ping-nodes with the known hostnames
+  // and merges per-node results into state.
+  useEffect(() => {
+    if (!open) return;
+    const nodes = swarmNodes?.map((n) => n.nodeId) ?? [];
+    if (nodes.length === 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api.post('/storage/agent/ping-nodes', { nodes });
+        const data = unwrap<{ results: ProbeResult[]; allUp: boolean }>(r);
+        if (cancelled) return;
+        setProbeError(null);
+        const next: Record<string, ProbeResult> = {};
+        for (const res of data.results) next[res.nodeId] = res;
+        setProbeByNode(next);
+      } catch (e: any) {
+        if (!cancelled) {
+          setProbeError(e?.message ?? 'probe failed');
+        }
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [open, swarmNodes]);
+
+  const upCount = Object.values(probeByNode).filter((p) => p.up).length;
+  const totalCount = swarmNodes?.length ?? 0;
+  const allUp = totalCount > 0 && upCount === totalCount;
 
   const remainingMs = bundle ? new Date(bundle.expiresAt).getTime() - now : 0;
   const expired = bundle != null && remainingMs <= 0;
@@ -908,6 +992,15 @@ function SetupAgentsDialog({
     const r = s % 60;
     return `${m}:${r.toString().padStart(2, '0')}`;
   };
+
+  function proceed(): void {
+    const upNodes = Object.values(probeByNode)
+      .filter((p) => p.up)
+      .map((p) => p.nodeId);
+    if (upNodes.length === 0) return;
+    onReadyToInstall(upNodes);
+    onOpenChange(false);
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -920,10 +1013,10 @@ function SetupAgentsDialog({
 
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Shared storage needs a signed-WS agent running on every swarm node.
-            Paste the one-liner below in a root shell on each node (the token
-            expires in 15 minutes), then add the backend env lines to your
-            stack.yml and restart the backend to enable the feature.
+            Shared storage needs a signed-WS agent on every node. Paste the
+            one-liner below as root on each. The panel below polls
+            <span className="font-mono"> :9443</span> every 2 seconds; when
+            all nodes turn green you can proceed to install.
           </p>
 
           {isPending && (
@@ -962,17 +1055,78 @@ function SetupAgentsDialog({
               />
             </>
           )}
+
+          {swarmNodes != null && swarmNodes.length > 0 && (
+            <div className="rounded-md border bg-card p-3">
+              <div className="mb-2 flex items-center justify-between text-xs">
+                <span className="font-medium text-muted-foreground">
+                  Swarm nodes
+                </span>
+                <span
+                  className={cn(
+                    'font-mono',
+                    allUp ? 'text-green-700' : 'text-muted-foreground',
+                  )}
+                >
+                  {upCount}/{totalCount} up
+                </span>
+              </div>
+              <ul className="space-y-1">
+                {swarmNodes.map((n) => {
+                  const probe = probeByNode[n.nodeId];
+                  const up = probe?.up === true;
+                  return (
+                    <li
+                      key={n.nodeId}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      {up ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      )}
+                      <span className="font-mono">{n.nodeId}</span>
+                      <span className="rounded bg-muted px-1.5 text-xs text-muted-foreground">
+                        {n.role}
+                      </span>
+                      {up && probe?.latencyMs != null && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {probe.latencyMs}ms
+                        </span>
+                      )}
+                      {!up && probe?.error && (
+                        <span className="ml-auto truncate text-xs text-muted-foreground">
+                          {probe.error}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {probeError && (
+                <p className="mt-2 text-xs text-red-600">{probeError}</p>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
-          <Button onClick={onRegenerate} disabled={isPending}>
+          <Button
+            variant="outline"
+            onClick={onRegenerate}
+            disabled={isPending}
+          >
             {isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : null}
             {bundle ? 'Regenerate' : 'Generate'}
+          </Button>
+          <Button onClick={proceed} disabled={!allUp}>
+            <PlayCircle className="mr-2 h-4 w-4" />
+            Proceed to install ({upCount})
           </Button>
         </DialogFooter>
       </DialogContent>
