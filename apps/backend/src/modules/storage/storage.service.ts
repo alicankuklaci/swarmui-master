@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -14,7 +15,7 @@ import {
   SharedStorage,
   SharedStorageDocument,
 } from './schemas/shared-storage.schema';
-import { InstallStorageDto } from './dto/install-storage.dto';
+import { InstallStorageDto, mountPointHasTraversal } from './dto/install-storage.dto';
 
 // Thin facade over the SharedStorage singleton. Sprint 2 wires `queueInstall`
 // to the orchestrator (fire-and-forget — HTTP returns immediately with the
@@ -45,11 +46,23 @@ export class StorageService {
     dto: InstallStorageDto,
     initiatedBy: string,
   ): Promise<{ installSessionId: string }> {
+    // DTO regex accepts `..` as a substring (filenames like `foo..bar` are
+    // valid), so a `..` traversal SEGMENT is a separate check — mirror the
+    // agent's own assertPath so we fail at the HTTP edge, not after
+    // persistence.
+    if (dto.mountPoint && mountPointHasTraversal(dto.mountPoint)) {
+      throw new BadRequestException(
+        'mountPoint: traversal segment (`..` or `.`) is not permitted',
+      );
+    }
     const installSessionId = uuidv4();
     const config: SharedStorageConfig = {
       backend: dto.backend,
       nodes: dto.nodes,
-      mountPoint: '/var/lib/swarmui/shared',
+      // Operator-chosen mountPoint falls back to the canonical FHS path.
+      // Both drivers accept config.mountPoint; prior to this field being
+      // exposed, every install silently landed at /var/lib/swarmui/shared.
+      mountPoint: dto.mountPoint ?? '/var/lib/swarmui/shared',
       nfsServerNode: dto.nfsServerNode,
       replication: dto.replication,
       insecure: dto.insecure,

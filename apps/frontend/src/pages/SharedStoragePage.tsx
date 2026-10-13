@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
   HardDrive,
   Loader2,
   PlayCircle,
   ShieldAlert,
+  Terminal,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -87,6 +89,13 @@ type InstallStepEvent = {
   ts: string;
 };
 
+type AgentInstallBundle = {
+  installCommand: string;
+  backendEnv: string[];
+  expiresAt: string;
+  installsRemaining: number;
+};
+
 export function SharedStoragePage() {
   const qc = useQueryClient();
   const confirm = useConfirm();
@@ -98,6 +107,9 @@ export function SharedStoragePage() {
     consumers?: string[];
     mountPoint?: string;
   } | null>(null);
+  const [agentSetupOpen, setAgentSetupOpen] = useState(false);
+  const [agentBundle, setAgentBundle] = useState<AgentInstallBundle | null>(null);
+  const [agentError, setAgentError] = useState<string | null>(null);
 
   const statusQuery = useQuery<SharedStorageStatus | null>({
     queryKey: ['shared-storage'],
@@ -167,6 +179,31 @@ export function SharedStoragePage() {
     },
   });
 
+  const agentTokenMutation = useMutation({
+    mutationFn: () =>
+      api
+        .post('/storage/agent/install-token')
+        .then((r) => unwrap<AgentInstallBundle>(r)),
+    onSuccess: (data) => {
+      setAgentBundle(data);
+      setAgentError(null);
+    },
+    onError: (err: any) => {
+      const msg =
+        err?.response?.data?.message ??
+        err?.message ??
+        'failed to issue install token';
+      setAgentError(String(msg));
+    },
+  });
+
+  function openAgentSetup() {
+    setAgentBundle(null);
+    setAgentError(null);
+    setAgentSetupOpen(true);
+    agentTokenMutation.mutate();
+  }
+
   async function onUninstall() {
     const ok = await confirm({
       title: 'Uninstall shared storage?',
@@ -212,14 +249,19 @@ export function SharedStoragePage() {
         </div>
         <div className="flex gap-2">
           {showWizard && (
-            <Button
-              onClick={() => {
-                setInstallError(null);
-                setInstallOpen(true);
-              }}
-            >
-              Install
-            </Button>
+            <>
+              <Button variant="outline" onClick={openAgentSetup}>
+                <Terminal className="mr-2 h-4 w-4" /> Setup agents
+              </Button>
+              <Button
+                onClick={() => {
+                  setInstallError(null);
+                  setInstallOpen(true);
+                }}
+              >
+                Install
+              </Button>
+            </>
           )}
           {canUninstall && (
             <Button
@@ -279,6 +321,15 @@ export function SharedStoragePage() {
         onSubmit={(dto) => installMutation.mutate(dto)}
         isPending={installMutation.isPending}
         error={installError}
+      />
+
+      <SetupAgentsDialog
+        open={agentSetupOpen}
+        onOpenChange={setAgentSetupOpen}
+        bundle={agentBundle}
+        isPending={agentTokenMutation.isPending}
+        error={agentError}
+        onRegenerate={openAgentSetup}
       />
     </div>
   );
@@ -455,7 +506,11 @@ type InstallDto = {
   nfsServerNode?: string;
   replication?: string;
   insecure?: boolean;
+  mountPoint?: string;
 };
+
+const DEFAULT_MOUNT_POINT = '/var/lib/swarmui/shared';
+const MOUNT_POINT_UI_RE = /^\/[A-Za-z0-9._\-/]{1,255}$/;
 
 function InstallDialog({
   open,
@@ -475,15 +530,24 @@ function InstallDialog({
   const [nfsServerNode, setNfsServerNode] = useState('');
   const [replication, setReplication] = useState('010');
   const [insecure, setInsecure] = useState(true);
+  const [mountPoint, setMountPoint] = useState('');
 
   const nodes = nodesRaw
     .split(/[,\s]+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+  const trimmedMount = mountPoint.trim();
+  const mountValid =
+    trimmedMount === '' ||
+    (MOUNT_POINT_UI_RE.test(trimmedMount) &&
+      !trimmedMount
+        .split('/')
+        .some((seg) => seg === '..' || seg === '.'));
   const valid =
     nodes.length > 0 &&
     nodes.every((n) => /^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$/.test(n)) &&
-    (backend !== 'nfs' || /^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$/.test(nfsServerNode));
+    (backend !== 'nfs' || /^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$/.test(nfsServerNode)) &&
+    mountValid;
 
   function submit() {
     if (!valid) return;
@@ -494,6 +558,7 @@ function InstallDialog({
     };
     if (backend === 'nfs') dto.nfsServerNode = nfsServerNode;
     if (backend === 'seaweedfs') dto.replication = replication;
+    if (trimmedMount) dto.mountPoint = trimmedMount;
     onSubmit(dto);
   }
 
@@ -578,6 +643,25 @@ function InstallDialog({
             </div>
           )}
 
+          <div>
+            <label className="text-sm font-medium">Mount point</label>
+            <Input
+              placeholder={DEFAULT_MOUNT_POINT}
+              value={mountPoint}
+              onChange={(e) => setMountPoint(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Absolute POSIX path, same on every node. Leave empty for the
+              default. Avoid bare <span className="font-mono">/mnt</span>;
+              prefer a subdir like <span className="font-mono">/mnt/swarmui-shared</span>.
+            </p>
+            {trimmedMount !== '' && !mountValid && (
+              <p className="mt-1 text-xs text-red-600">
+                Must be an absolute POSIX path with no <span className="font-mono">..</span> segments.
+              </p>
+            )}
+          </div>
+
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -587,8 +671,7 @@ function InstallDialog({
             <span>
               Skip TLS at install.{' '}
               <span className="text-xs text-muted-foreground">
-                Dev / trusted networks only. Cross-node cert distribution + TLS
-                flag wiring land in Sprint 8.
+                Dev / trusted networks only.
               </span>
             </span>
           </label>
@@ -787,6 +870,163 @@ function FrameRow({ frame }: { frame: InstallStepEvent }) {
           {frame.durationMs}ms
         </span>
       )}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------
+// Setup agents dialog (Sprint 9)
+// -----------------------------------------------------------------------
+
+function SetupAgentsDialog({
+  open,
+  onOpenChange,
+  bundle,
+  isPending,
+  error,
+  onRegenerate,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  bundle: AgentInstallBundle | null;
+  isPending: boolean;
+  error: string | null;
+  onRegenerate: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open || !bundle) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [open, bundle]);
+
+  const remainingMs = bundle ? new Date(bundle.expiresAt).getTime() - now : 0;
+  const expired = bundle != null && remainingMs <= 0;
+  const mmss = (ms: number) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${r.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Terminal className="h-5 w-5" /> Install swarm-agents
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Shared storage needs a signed-WS agent running on every swarm node.
+            Paste the one-liner below in a root shell on each node (the token
+            expires in 15 minutes), then add the backend env lines to your
+            stack.yml and restart the backend to enable the feature.
+          </p>
+
+          {isPending && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Generating token…
+            </div>
+          )}
+
+          {error && (
+            <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              {error}
+            </div>
+          )}
+
+          {bundle && (
+            <>
+              <CopyBlock
+                label="Install one-liner (run on every node, as root)"
+                content={bundle.installCommand}
+                footer={
+                  <span
+                    className={cn(
+                      'text-xs',
+                      expired ? 'text-red-600' : 'text-muted-foreground',
+                    )}
+                  >
+                    {expired
+                      ? 'Token expired — regenerate'
+                      : `Expires in ${mmss(remainingMs)} · installs remaining ${bundle.installsRemaining}`}
+                  </span>
+                }
+              />
+              <CopyBlock
+                label="Add to backend stack.yml (then restart backend)"
+                content={bundle.backendEnv.join('\n')}
+              />
+            </>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button onClick={onRegenerate} disabled={isPending}>
+            {isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            {bundle ? 'Regenerate' : 'Generate'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CopyBlock({
+  label,
+  content,
+  footer,
+}: {
+  label: string;
+  content: string;
+  footer?: React.ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard
+      .writeText(content)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {
+        // clipboard blocked (e.g. non-https origin) — fall back to a prompt
+        window.prompt('Copy manually:', content);
+      });
+  };
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <label className="text-xs font-medium text-muted-foreground">
+          {label}
+        </label>
+        <button
+          onClick={copy}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          {copied ? (
+            <>
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" /> Copy
+            </>
+          )}
+        </button>
+      </div>
+      <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border bg-muted/50 p-3 font-mono text-xs leading-relaxed">
+        {content}
+      </pre>
+      {footer && <div className="mt-1 flex justify-end">{footer}</div>}
     </div>
   );
 }

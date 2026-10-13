@@ -23,6 +23,17 @@ import {
 // a shell meta-char through openssl. 1-253 chars matches DNS limits.
 export const NODE_NAME_RE = /^(?=.{1,253}$)[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
+// POSIX absolute path, same regex as the agent's assertPath. Rejects traversal
+// segments at the DTO layer so a bad mountPoint never reaches the driver.
+export const MOUNT_POINT_RE = /^\/[A-Za-z0-9._\-/]{1,255}$/;
+const MOUNT_POINT_TRAVERSAL_SEGMENTS = new Set(['..', '.']);
+export function mountPointHasTraversal(value: string): boolean {
+  for (const seg of value.split('/')) {
+    if (MOUNT_POINT_TRAVERSAL_SEGMENTS.has(seg)) return true;
+  }
+  return false;
+}
+
 // The shape storage-core accepts to kick off an install. Driver-specific
 // options live under driverOpts and are opaque here — each driver re-validates
 // its own slice. Deliberately strict: an unknown backend or a bad NFS server
@@ -75,6 +86,18 @@ export class InstallStorageDto {
   @IsOptional()
   @IsBoolean()
   insecure?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Absolute POSIX path where the cluster-wide filesystem is mounted on every node. Default /var/lib/swarmui/shared.',
+    example: '/mnt/swarmui-shared',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(MOUNT_POINT_RE, {
+    message: 'mountPoint must be an absolute POSIX path, 2-256 chars',
+  })
+  mountPoint?: string;
 }
 
 export class InstallSessionResponseDto {
