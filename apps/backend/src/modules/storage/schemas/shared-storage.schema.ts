@@ -12,8 +12,13 @@ export type SharedStorageDocument = SharedStorage & Document;
 // A singleton document — only one shared-storage install per swarm. The
 // controller enforces that at the service layer; the schema just models the
 // shape. The _id is a stable string ("primary") so lookups are deterministic.
-@Schema({ timestamps: true, collection: 'shared_storage' })
+// Without the String _id override Mongoose casts to ObjectId and every
+// findById('primary') throws CastError.
+@Schema({ timestamps: true, collection: 'shared_storage', _id: false })
 export class SharedStorage {
+  @Prop({ type: String, required: true })
+  _id: string;
+
   @Prop({ type: String, required: true, enum: STORAGE_BACKENDS })
   backend: StorageBackend;
 
