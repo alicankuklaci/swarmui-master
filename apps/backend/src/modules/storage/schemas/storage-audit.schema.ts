@@ -30,10 +30,14 @@ export class StorageAuditLog {
   @Prop({ required: true })
   exitCode: number;
 
-  @Prop({ required: true })
+  // Not every audit entry has these — a step that failed before exec() ran
+  // (agent unreachable, HMAC reject, timeout before handler dispatch) has no
+  // stdout/stderr to hash. Defaulting to '' lets the audit record land so the
+  // orchestrator's fail-closed path doesn't swallow the real exit reason.
+  @Prop({ required: false, default: '' })
   stdoutHash: string;
 
-  @Prop({ required: true })
+  @Prop({ required: false, default: '' })
   stderrHash: string;
 
   @Prop({ required: true })
