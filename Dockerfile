@@ -33,6 +33,14 @@ RUN apk add --no-cache curl \
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/apps/backend/package.json ./apps/backend/
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+# Workspace packages the backend requires at runtime (storage-plan) or via its
+# own package.json entries (swarm-agent — devDep in spirit, listed as dep so
+# pnpm must still resolve the workspace:* reference). Dist + package.json are
+# enough; src is not needed in the runtime image.
+COPY --from=builder /app/packages/storage-plan/package.json ./packages/storage-plan/
+COPY --from=builder /app/packages/storage-plan/dist ./packages/storage-plan/dist
+COPY --from=builder /app/packages/swarm-agent/package.json ./packages/swarm-agent/
+COPY --from=builder /app/packages/swarm-agent/dist ./packages/swarm-agent/dist
 RUN pnpm install --prod --frozen-lockfile
 EXPOSE 3001
 CMD ["node", "apps/backend/dist/main"]
