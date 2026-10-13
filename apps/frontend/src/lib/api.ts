@@ -13,7 +13,17 @@ export const api = axios.create({
  * over inline `r.data?.data ?? r.data` chains — it's typed and consistent.
  */
 export function unwrap<T = any>(r: AxiosResponse): T {
-  return (r.data?.data ?? r.data) as T;
+  // The backend wraps every success response in { success, data, timestamp }.
+  // Previously `r.data?.data ?? r.data` returned the whole envelope when the
+  // inner `data` was `null` (?? only falls through on null/undefined on the
+  // left of itself, not the right) — callers that treated `null` as "no
+  // record" instead got a truthy envelope object with no fields, and
+  // conditional UI (e.g. SharedStoragePage.showWizard) silently collapsed.
+  // Explicitly key off the envelope shape instead.
+  if (r.data && typeof r.data === 'object' && 'data' in r.data) {
+    return (r.data as { data: T }).data;
+  }
+  return r.data as T;
 }
 
 // Request interceptor - attach access token
