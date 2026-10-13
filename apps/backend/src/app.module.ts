@@ -38,6 +38,7 @@ import {
   StorageCoreModule,
   isSharedStorageEnabled,
 } from './modules/storage/storage-core.module';
+import { StorageAgentInstallModule } from './modules/storage-agent-install/storage-agent-install.module';
 
 @Module({
   imports: [
@@ -94,6 +95,9 @@ import {
     EventsModule,
     MonitoringModule,
     PrometheusModule.register({ path: '/metrics' }),
+    // Always-on: admin-issued one-liner installer for the swarm-agent, so
+    // operators can set up agents BEFORE flipping FEATURE_SHARED_STORAGE.
+    StorageAgentInstallModule,
     ...(isSharedStorageEnabled(process.env.FEATURE_SHARED_STORAGE) ? [StorageCoreModule] : []),
   ],
   providers: [

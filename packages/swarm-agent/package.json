@@ -4,10 +4,14 @@
   "private": true,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "swarmui-shared-storage-agent": "./dist/bin.js"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "start": "node ./dist/bin.js"
   },
   "dependencies": {
     "@swarmui-master/storage-plan": "workspace:*",
